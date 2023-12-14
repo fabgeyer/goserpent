@@ -1,0 +1,13 @@
+//export {{.CFunctionName}}{{if .HasArgs }}
+func {{.CFunctionName}}(self, args, kwargs *C.PyObject) *C.PyObject {
+	{{ join .ArgsGoC "\n\t" }}
+	if C.{{.CFunctionName}}_parseargs(args, kwargs, &{{ join .ArgsGoNames ", &" }}) == 0 {
+		return nil
+	}
+	{{.GoPyReturn .ArgsCToGo}}
+}
+{{else}}
+func {{.CFunctionName}}() *C.PyObject {
+	{{.GoPyReturn .ArgsCToGo}}
+}
+{{end}}

@@ -1,0 +1,38 @@
+package main
+
+// #cgo pkg-config: python3 python3-embed
+// #include <Python.h>
+import "C"
+
+import (
+	"fmt"
+)
+
+// Automatically exported as it returns a *C.PyObject
+func FunctionWithArgs(arg1, arg2 int, arg3 string) *C.PyObject {
+	fmt.Printf("FunctionWithArgs(%d, %d, %s)\n", arg1, arg2, arg3)
+	return C.Py_None
+}
+
+// Automatically exported as it returns a *C.PyObject
+func BasicFunction() *C.PyObject {
+	fmt.Println("BasicFunction()")
+	return C.Py_None
+}
+
+// go:pyexport
+func FunctionReturnBool() bool {
+	fmt.Println("FunctionReturnBool()")
+	return true
+}
+
+// go:pyexport
+func FunctionReturnNone() {
+	fmt.Println("FunctionReturnNone()")
+}
+
+// go:pyexport
+func FunctionReturnError(arg int) error {
+	fmt.Printf("FunctionReturnError(%d)\n", arg)
+	return fmt.Errorf("Example error")
+}
