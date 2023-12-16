@@ -18,12 +18,16 @@ func AsPyBool(v bool) *C.PyObject {
 	}
 }
 
-func AsPyLong(v int) *C.PyObject {
+func AsPyLong[T int | int8 | int16 | int32](v T) *C.PyObject {
 	return C.PyLong_FromLong(C.long(v))
 }
 
 func AsPyString(v string) *C.PyObject {
 	return C.PyUnicode_FromString(C.CString(v))
+}
+
+func AsPyFloat[T float32 | float64](v T) *C.PyObject {
+	return C.PyFloat_FromDouble(C.double(v))
 }
 
 func AsPyError(err error) *C.PyObject {

@@ -91,8 +91,10 @@ func (fs *FunctionSignature) GoPyReturn(args []string) string {
 		return fmt.Sprintf("return %s", goCall)
 	case "bool":
 		return fmt.Sprintf("return AsPyBool(%s)", goCall)
-	case "int":
+	case "int", "int8", "int16", "int32":
 		return fmt.Sprintf("return AsPyLong(%s)", goCall)
+	case "float32", "float64":
+		return fmt.Sprintf("return AsPyFloat(%s)", goCall)
 	case "string":
 		return fmt.Sprintf("return AsPyString(%s)", goCall)
 	case "error":
@@ -116,10 +118,10 @@ func (fa *FunctionArgument) PyArgFormat() string {
 		return "i"
 	case "int32":
 		return "l"
-	case "int64":
-		return "L"
 	case "uint32":
 		return "k"
+	case "int64":
+		return "L"
 	case "uint64":
 		return "K"
 	case "float32":
@@ -128,6 +130,8 @@ func (fa *FunctionArgument) PyArgFormat() string {
 		return "d"
 	case "string":
 		return "s"
+	case "*C.PyObject":
+		return "O"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
 	}
@@ -141,16 +145,26 @@ func (fa *FunctionArgument) GoCType() string {
 	switch fa.GoType {
 	case "int":
 		return "C.int"
+	case "int16":
+		return "C.int16_t"
+	case "uint16":
+		return "C.uint16_t"
 	case "int32":
 		return "C.int32_t"
-	case "int64":
-		return "C.int64_t"
 	case "uint32":
 		return "C.uint32_t"
+	case "int64":
+		return "C.int64_t"
 	case "uint64":
 		return "C.uint64_t"
+	case "float32":
+		return "C.float"
+	case "float64":
+		return "C.double"
 	case "string":
 		return "*C.char"
+	case "*C.PyObject":
+		return "*C.PyObject"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
 	}
@@ -168,8 +182,14 @@ func (fa *FunctionArgument) CPtrType() string {
 		return "uint32_t *"
 	case "uint64":
 		return "uint64_t *"
+	case "float32":
+		return "float *"
+	case "float64":
+		return "double *"
 	case "string":
 		return "char **"
+	case "*C.PyObject":
+		return "PyObject **"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
 	}
@@ -177,7 +197,9 @@ func (fa *FunctionArgument) CPtrType() string {
 
 func (fa *FunctionArgument) CToGoFunction() string {
 	switch fa.GoType {
-	case "int", "uint", "int32", "int64", "uint32", "uint64":
+	case "*C.PyObject":
+		return ""
+	case "int", "uint", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64":
 		return fa.GoType
 	case "string":
 		return "C.GoString"
@@ -279,6 +301,10 @@ func FuncDeclDocContains(funcDecl *ast.FuncDecl, substr string) bool {
 	return false
 }
 
+func GetSourceString(content []byte, node ast.Node) string {
+	return string(content[node.Pos()-1 : node.End()-1])
+}
+
 func DoPyExports(args Args, rargs []string) {
 	var fnPackage string
 	var fnSignatures []*FunctionSignature
@@ -324,17 +350,31 @@ func DoPyExports(args Args, rargs []string) {
 				var args []FunctionArgument
 				for _, list := range t.Type.Params.List {
 					typeIdent, ok := list.Type.(*ast.Ident)
-					if !ok {
-						log.Fatal().Str("function", t.Name.Name).Msgf("Argument type '%s' not supported!", list.Type)
-						return true
+					if ok {
+						for _, n := range list.Names {
+							args = append(args, FunctionArgument{
+								GoName: n.Name,
+								GoType: typeIdent.Name,
+							})
+						}
+						continue
 					}
 
-					for _, n := range list.Names {
-						args = append(args, FunctionArgument{
-							GoName: n.Name,
-							GoType: typeIdent.Name,
-						})
+					if IsCPyObjectPtr(list) {
+						for _, n := range list.Names {
+							args = append(args, FunctionArgument{
+								GoName: n.Name,
+								GoType: "*C.PyObject",
+							})
+						}
+						continue
 					}
+
+					log.Fatal().
+						Str("function", t.Name.Name).
+						Str("filename", fname).
+						Msgf("Argument type '%s' not supported!", GetSourceString(content, list.Type))
+					return true
 				}
 
 				var goReturnType string
@@ -347,7 +387,10 @@ func DoPyExports(args Args, rargs []string) {
 				} else if numReturnFields == 1 {
 					ident, ok := t.Type.Results.List[0].Type.(*ast.Ident)
 					if !ok {
-						log.Fatal().Str("function", t.Name.Name).Msgf("Return type '%s' not supported!", t.Type.Results.List[0])
+						log.Fatal().
+							Str("function", t.Name.Name).
+							Str("filename", fname).
+							Msgf("Return type '%s' not supported!", GetSourceString(content, t.Type.Results.List[0]))
 					}
 					goReturnType = ident.Name
 
