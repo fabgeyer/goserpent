@@ -23,8 +23,9 @@ $ go install github.com/fabgeyer/goserpent@latest
 To export a Go function to Python, add `go:pyexport` in the function's comment:
 ```go
 // go:pyexport
-func ExampleFunction(arg int) {
+func ExampleFunction(arg int) int {
 	println(arg)
+	return arg * arg
 }
 ```
 Functions directly returning a `*C.PyObject` are automatically exported and the `go:pyexport` is optional.
@@ -43,6 +44,20 @@ The Go functions can be called from Python using it's snakecase name:
 ```python
 from gomodule import example_function
 example_function()
+```
+
+`goserpent` also supports functions returning an error.
+If the function returns an error, a Python runtime error is thrown when called from Python.
+```go
+// go:pyexport
+func ExampleFunctionWithError(arg int) (int, error) {
+	if arg == 0 {
+		// Will throw a runtime error when called from Python
+		return 0, errors.New("Invalid argument")
+	}
+	println(arg)
+	return arg * arg, nil
+}
 ```
 
 ## Limitations

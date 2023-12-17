@@ -37,5 +37,4 @@ func AsPyError(err error) *C.PyObject {
 	C.PyErr_SetString(C.PyExc_RuntimeError, C.CString(err.Error()))
 	return nil
 }
-
 {{range .Functions}}{{template "gopyexport" .}}{{end}}

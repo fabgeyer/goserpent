@@ -21,6 +21,15 @@ func BasicFunction() *C.PyObject {
 }
 
 // go:pyexport
+func BasicFunctionWithError(arg int) (int, error) {
+	fmt.Printf("BasicFunctionWithError(%d)\n", arg)
+	if arg == 0 {
+		return 0, fmt.Errorf("Invalid argument")
+	}
+	return arg, nil
+}
+
+// go:pyexport
 func FunctionReturnBool() bool {
 	fmt.Println("FunctionReturnBool()")
 	return true

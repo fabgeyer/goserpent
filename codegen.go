@@ -18,9 +18,10 @@ import (
 var templateFiles embed.FS
 
 type FunctionSignature struct {
-	GoFuncName   string
-	Args         []FunctionArgument
-	GoReturnType string
+	GoFuncName       string
+	Args             []FunctionArgument
+	GoReturnType     string
+	ReturnsAlsoError bool
 
 	initDone          bool
 	CFunctionName     string
@@ -76,29 +77,22 @@ func (fs *FunctionSignature) PyModuleDef() string {
 	}
 }
 
-func (fs *FunctionSignature) GoPyReturn(args []string) string {
-	var goCall string
-	if len(args) == 0 {
-		goCall = fs.GoFuncName + "()"
-	} else {
-		goCall = fmt.Sprintf("%s(%s)", fs.GoFuncName, strings.Join(args, ", "))
-	}
-
+func (fs *FunctionSignature) GoPyReturn(result string) string {
 	switch fs.GoReturnType {
 	case "": // Equivalent of Python's None
-		return fmt.Sprintf("%s; return C.Py_None", goCall)
+		return "return C.Py_None"
 	case "*C.PyObject":
-		return fmt.Sprintf("return %s", goCall)
+		return fmt.Sprintf("return %s", result)
 	case "bool":
-		return fmt.Sprintf("return AsPyBool(%s)", goCall)
+		return fmt.Sprintf("return AsPyBool(%s)", result)
 	case "int", "int8", "int16", "int32":
-		return fmt.Sprintf("return AsPyLong(%s)", goCall)
+		return fmt.Sprintf("return AsPyLong(%s)", result)
 	case "float32", "float64":
-		return fmt.Sprintf("return AsPyFloat(%s)", goCall)
+		return fmt.Sprintf("return AsPyFloat(%s)", result)
 	case "string":
-		return fmt.Sprintf("return AsPyString(%s)", goCall)
+		return fmt.Sprintf("return AsPyString(%s)", result)
 	case "error":
-		return fmt.Sprintf("return AsPyError(%s)", goCall)
+		return fmt.Sprintf("return AsPyError(%s)", result)
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName))
 	}
@@ -230,6 +224,17 @@ func IsCPyObjectPtr(field *ast.Field) bool {
 	return false
 }
 
+func IsErrorType(field *ast.Field) bool {
+	ident, ok := field.Type.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if ident.Name == "error" {
+		return true
+	}
+	return false
+}
+
 func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, fname string) error {
 	var err error
 	f, err := os.Create(fname)
@@ -275,11 +280,13 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName string, fnSign
 		Functions:   fnSignatures,
 	}
 
-	log.Trace().Str("File", goCodeFname).Msg("Export Go code")
+	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
 	err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to generate Go code")
 	}
+
+	log.Trace().Str("filename", cCodeFname).Msg("Export C code")
 	err = SafeWriteTemplate(tmpl, "mainc", data, cCodeFname)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to generate C code")
@@ -305,11 +312,11 @@ func GetSourceString(content []byte, node ast.Node) string {
 	return string(content[node.Pos()-1 : node.End()-1])
 }
 
-func DoPyExports(args Args, rargs []string) {
+func DoPyExports(args Args, fnames []string) {
 	var fnPackage string
 	var fnSignatures []*FunctionSignature
 
-	for _, fname := range rargs {
+	for _, fname := range fnames {
 		log.Trace().Msgf("Process %s", fname)
 
 		content, err := ioutil.ReadFile(fname)
@@ -328,9 +335,9 @@ func DoPyExports(args Args, rargs []string) {
 			case *ast.File:
 				if fnPackage == "" {
 					fnPackage = t.Name.Name
-					log.Trace().Msgf("Detected package '%s'", fnPackage)
+					log.Trace().Msgf("Detected Go package '%s'", fnPackage)
 				} else if t.Name.Name != fnPackage {
-					log.Trace().Msgf("Detected package '%s' != '%s'", t.Name.Name, fnPackage)
+					log.Trace().Msgf("Detected Go package '%s' != '%s'", t.Name.Name, fnPackage)
 					log.Fatal().Msg("All files need to be in the same package!")
 				}
 
@@ -338,8 +345,8 @@ func DoPyExports(args Args, rargs []string) {
 			case *ast.FuncDecl:
 				isExport := FuncDeclDocContains(t, "go:pyexport")
 
-				// Check if the function returns a *C.PyObject
 				numReturnFields := t.Type.Results.NumFields()
+				// Check if the function returns a *C.PyObject
 				returnsCPythonPtr := (numReturnFields == 1) && IsCPyObjectPtr(t.Type.Results.List[0])
 
 				if !(isExport || returnsCPythonPtr) {
@@ -378,13 +385,14 @@ func DoPyExports(args Args, rargs []string) {
 				}
 
 				var goReturnType string
+				var returnsAlsoError bool
 				if returnsCPythonPtr {
 					goReturnType = "*C.PyObject"
 
 				} else if numReturnFields == 0 {
 					goReturnType = "" // Equivalent of Python's None
 
-				} else if numReturnFields == 1 {
+				} else if numReturnFields == 1 || numReturnFields == 2 {
 					ident, ok := t.Type.Results.List[0].Type.(*ast.Ident)
 					if !ok {
 						log.Fatal().
@@ -394,15 +402,33 @@ func DoPyExports(args Args, rargs []string) {
 					}
 					goReturnType = ident.Name
 
+					if numReturnFields == 2 {
+						if IsErrorType(t.Type.Results.List[1]) {
+							returnsAlsoError = true
+						} else {
+							log.Fatal().
+								Str("function", t.Name.Name).
+								Str("filename", fname).
+								Msgf("Return type '%s' not supported!", GetSourceString(content, t.Type.Results.List[1]))
+						}
+					}
+
 				} else {
-					log.Fatal().Msgf("Invalid return signature for function %s", t.Name.Name)
+					log.Fatal().
+						Str("filename", fname).
+						Msgf("Invalid return signature for function %s", t.Name.Name)
 				}
 
 				fnSignatures = append(fnSignatures, &FunctionSignature{
-					GoFuncName:   t.Name.Name,
-					Args:         args,
-					GoReturnType: goReturnType,
+					GoFuncName:       t.Name.Name,
+					Args:             args,
+					GoReturnType:     goReturnType,
+					ReturnsAlsoError: returnsAlsoError,
 				})
+
+				log.Debug().
+					Str("filename", fname).
+					Msgf("Exporting %s", t.Name.Name)
 			}
 			return true
 		})
