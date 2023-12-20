@@ -6,31 +6,35 @@ package {{.PackageName}}
 #cgo pkg-config: python3 python3-embed
 #include <Python.h>
 
-{{range .Functions}}{{if .HasArgs }}{{template "cdefexport" .}}{{end}}{{end}}
-*/
+PyObject* PyIncRef(PyObject *o);
+{{range .Functions}}{{if .HasArgs }}{{template "cdefexport" .}}{{end}}{{end}}*/
 import "C"
 
-func AsPyBool(v bool) *C.PyObject {
+func asGoBool(v C.int) bool {
+	return v != 0
+}
+
+func asPyBool(v bool) *C.PyObject {
 	if v {
-		return C.Py_True
+		return C.PyIncRef(C.Py_True)
 	} else {
-		return C.Py_False
+		return C.PyIncRef(C.Py_False)
 	}
 }
 
-func AsPyLong[T int | int8 | int16 | int32](v T) *C.PyObject {
-	return C.PyLong_FromLong(C.long(v))
+func asPyLong[T int | int8 | int16 | int32](v T) *C.PyObject {
+	return C.PyIncRef(C.PyLong_FromLong(C.long(v)))
 }
 
-func AsPyString(v string) *C.PyObject {
-	return C.PyUnicode_FromString(C.CString(v))
+func asPyString(v string) *C.PyObject {
+	return C.PyIncRef(C.PyUnicode_FromString(C.CString(v)))
 }
 
-func AsPyFloat[T float32 | float64](v T) *C.PyObject {
-	return C.PyFloat_FromDouble(C.double(v))
+func asPyFloat[T float32 | float64](v T) *C.PyObject {
+	return C.PyIncRef(C.PyFloat_FromDouble(C.double(v)))
 }
 
-func AsPyError(err error) *C.PyObject {
+func asPyError(err error) *C.PyObject {
 	if err == nil {
 		return C.Py_None
 	}

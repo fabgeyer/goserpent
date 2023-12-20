@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"embed"
+	"errors"
 	"fmt"
 	"go/ast"
+	"go/doc"
 	"go/parser"
 	"go/token"
 	"io/ioutil"
@@ -20,17 +23,19 @@ var templateFiles embed.FS
 type FunctionSignature struct {
 	GoFuncName       string
 	Args             []FunctionArgument
-	GoReturnType     string
+	GoReturnType     GoType
+	GoDoc            string
 	ReturnsAlsoError bool
 
-	initDone          bool
-	CFunctionName     string
-	PyMethodDefFlags  string
-	ArgsPythonNames   []string
-	ArgsCPtrSignature []string
-	ArgsGoC           []string
-	ArgsCToGo         []string
-	ArgsGoNames       []string
+	initDone                     bool
+	CFunctionName                string
+	PyMethodDefFlags             string
+	ArgsPythonNames              []string
+	ArgsPythonNamesWithTypeHints []string
+	ArgsCPtrSignature            []string
+	ArgsGoC                      []string
+	ArgsCToGo                    []string
+	ArgsGoNames                  []string
 }
 
 func (fs *FunctionSignature) init() {
@@ -41,12 +46,14 @@ func (fs *FunctionSignature) init() {
 	fs.CFunctionName = "pyexport_" + ToSnakeCase(fs.GoFuncName)
 
 	fs.ArgsPythonNames = make([]string, len(fs.Args))
+	fs.ArgsPythonNamesWithTypeHints = make([]string, len(fs.Args))
 	fs.ArgsCPtrSignature = make([]string, len(fs.Args))
 	fs.ArgsGoC = make([]string, len(fs.Args))
 	fs.ArgsCToGo = make([]string, len(fs.Args))
 	fs.ArgsGoNames = make([]string, len(fs.Args))
 	for i, arg := range fs.Args {
 		fs.ArgsPythonNames[i] = arg.PythonName()
+		fs.ArgsPythonNamesWithTypeHints[i] = fmt.Sprintf("%s: %s", arg.PythonName(), arg.PythonType())
 		fs.ArgsCPtrSignature[i] = fmt.Sprintf("%s%s", arg.CPtrType(), arg.PythonName())
 		fs.ArgsGoC[i] = fmt.Sprintf("var %s %s", arg.GoName, arg.GoCType())
 		fs.ArgsCToGo[i] = fmt.Sprintf("%s(%s)", arg.CToGoFunction(), arg.GoName)
@@ -70,10 +77,51 @@ func (fs *FunctionSignature) PyArgFormat() string {
 
 func (fs *FunctionSignature) PyModuleDef() string {
 	fs.init()
+	pyFunctionName := ToSnakeCase(fs.GoFuncName)
+	doc, err := fs.PyModuleDefDoc(pyFunctionName)
+	if err != nil {
+		log.Fatal().
+			Str("function", fs.GoFuncName).
+			Err(err).
+			Msg("Could not generate documentation")
+	}
+
 	if fs.HasArgs() {
-		return fmt.Sprintf(`{"%s", (PyCFunction)%s, METH_VARARGS | METH_KEYWORDS, ""}`, ToSnakeCase(fs.GoFuncName), fs.CFunctionName)
+		return fmt.Sprintf(`{"%s", (PyCFunction)%s, METH_VARARGS | METH_KEYWORDS, %s}`, pyFunctionName, fs.CFunctionName, doc)
 	} else {
-		return fmt.Sprintf(`{"%s", %s, METH_NOARGS, ""}`, ToSnakeCase(fs.GoFuncName), fs.CFunctionName)
+		return fmt.Sprintf(`{"%s", %s, METH_NOARGS, %s}`, pyFunctionName, fs.CFunctionName, doc)
+	}
+}
+
+func CCodeString(v string) (string, error) {
+	if strings.ContainsRune(v, '\n') {
+		if strings.Contains(v, `")`) {
+			// TODO: Properly escape quotes
+			return "", errors.New("String contains quote")
+		}
+		return fmt.Sprintf(`R"(%s)"`, v), nil
+	}
+
+	if strings.ContainsRune(v, '"') {
+		// TODO: Properly escape quotes
+		return "", errors.New("String contains quote")
+	}
+	return fmt.Sprintf(`"%s"`, v), nil
+}
+
+func (fs *FunctionSignature) PyModuleDefDoc(pyFunctionName string) (string, error) {
+	fs.init()
+
+	var returnSignature string
+	if fs.GoReturnType != "" && fs.GoReturnType != "error" {
+		returnSignature = fmt.Sprintf(" -> %s", fs.GoReturnType.PythonType())
+	}
+
+	signature := fmt.Sprintf("%s(%s)%s", pyFunctionName, strings.Join(fs.ArgsPythonNamesWithTypeHints, ", "), returnSignature)
+	if fs.GoDoc == "" {
+		return CCodeString(signature)
+	} else {
+		return CCodeString(signature + "\n\n" + fs.GoDoc)
 	}
 }
 
@@ -84,117 +132,37 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 	case "*C.PyObject":
 		return fmt.Sprintf("return %s", result)
 	case "bool":
-		return fmt.Sprintf("return AsPyBool(%s)", result)
+		return fmt.Sprintf("return asPyBool(%s)", result)
 	case "int", "int8", "int16", "int32":
-		return fmt.Sprintf("return AsPyLong(%s)", result)
+		return fmt.Sprintf("return asPyLong(%s)", result)
 	case "float32", "float64":
-		return fmt.Sprintf("return AsPyFloat(%s)", result)
+		return fmt.Sprintf("return asPyFloat(%s)", result)
 	case "string":
-		return fmt.Sprintf("return AsPyString(%s)", result)
+		return fmt.Sprintf("return asPyString(%s)", result)
 	case "error":
-		return fmt.Sprintf("return AsPyError(%s)", result)
+		return fmt.Sprintf("return asPyError(%s)", result)
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName))
 	}
 }
 
 type FunctionArgument struct {
+	GoType
 	GoName string
-	GoType string
-}
-
-func (fa *FunctionArgument) PyArgFormat() string {
-	// Returns the format used for PyArg_ParseTupleAndKeywords()
-	// https://docs.python.org/3/c-api/arg.html
-
-	switch fa.GoType {
-	case "int":
-		return "i"
-	case "int32":
-		return "l"
-	case "uint32":
-		return "k"
-	case "int64":
-		return "L"
-	case "uint64":
-		return "K"
-	case "float32":
-		return "f"
-	case "float64":
-		return "d"
-	case "string":
-		return "s"
-	case "*C.PyObject":
-		return "O"
-	default:
-		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
-	}
 }
 
 func (fa *FunctionArgument) PythonName() string {
 	return ToSnakeCase(fa.GoName)
 }
 
-func (fa *FunctionArgument) GoCType() string {
-	switch fa.GoType {
-	case "int":
-		return "C.int"
-	case "int16":
-		return "C.int16_t"
-	case "uint16":
-		return "C.uint16_t"
-	case "int32":
-		return "C.int32_t"
-	case "uint32":
-		return "C.uint32_t"
-	case "int64":
-		return "C.int64_t"
-	case "uint64":
-		return "C.uint64_t"
-	case "float32":
-		return "C.float"
-	case "float64":
-		return "C.double"
-	case "string":
-		return "*C.char"
-	case "*C.PyObject":
-		return "*C.PyObject"
-	default:
-		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
-	}
-}
-
-func (fa *FunctionArgument) CPtrType() string {
-	switch fa.GoType {
-	case "int":
-		return "int *"
-	case "int32":
-		return "int32_t *"
-	case "int64":
-		return "int64_t *"
-	case "uint32":
-		return "uint32_t *"
-	case "uint64":
-		return "uint64_t *"
-	case "float32":
-		return "float *"
-	case "float64":
-		return "double *"
-	case "string":
-		return "char **"
-	case "*C.PyObject":
-		return "PyObject **"
-	default:
-		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
-	}
-}
-
 func (fa *FunctionArgument) CToGoFunction() string {
 	switch fa.GoType {
 	case "*C.PyObject":
 		return ""
+	case "bool":
+		return "asGoBool"
 	case "int", "uint", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64":
-		return fa.GoType
+		return string(fa.GoType)
 	case "string":
 		return "C.GoString"
 	default:
@@ -295,17 +263,100 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName string, fnSign
 	}
 }
 
-func FuncDeclDocContains(funcDecl *ast.FuncDecl, substr string) bool {
-	if funcDecl.Doc == nil {
-		return false
-	}
+func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
+	var fnDoc string
+	var isExport bool
 
-	for _, v := range funcDecl.Doc.List {
-		if strings.Contains(v.Text, substr) {
-			return true
+	scanner := bufio.NewScanner(strings.NewReader(strings.TrimSpace(fn.Doc)))
+	for scanner.Scan() {
+		txt := scanner.Text()
+		if strings.HasPrefix(txt, "go:pyexport") {
+			isExport = true
+		} else {
+			if fnDoc == "" {
+				fnDoc = txt
+			} else {
+				fnDoc += "\n" + txt
+			}
 		}
 	}
-	return false
+
+	numReturnFields := fn.Decl.Type.Results.NumFields()
+	// Check if the function returns a *C.PyObject
+	returnsCPythonPtr := (numReturnFields == 1) && IsCPyObjectPtr(fn.Decl.Type.Results.List[0])
+
+	if !(isExport || returnsCPythonPtr) {
+		log.Trace().Msgf("Skip function %s", fn.Name)
+		return nil
+	}
+
+	var args []FunctionArgument
+	for _, list := range fn.Decl.Type.Params.List {
+		typeIdent, ok := list.Type.(*ast.Ident)
+		if ok {
+			for _, n := range list.Names {
+				args = append(args, FunctionArgument{
+					GoName: n.Name,
+					GoType: GoType(typeIdent.Name),
+				})
+			}
+			continue
+		}
+
+		if IsCPyObjectPtr(list) {
+			for _, n := range list.Names {
+				args = append(args, FunctionArgument{
+					GoName: n.Name,
+					GoType: "*C.PyObject",
+				})
+			}
+			continue
+		}
+
+		log.Fatal().
+			Str("function", fn.Name).
+			Msgf("Argument type '%s' not supported!", GetSourceString(sourceContent, list.Type))
+		return nil
+	}
+
+	var goReturnType string
+	var returnsAlsoError bool
+	if returnsCPythonPtr {
+		goReturnType = "*C.PyObject"
+
+	} else if numReturnFields == 0 {
+		goReturnType = "" // Equivalent of Python's None
+
+	} else if numReturnFields == 1 || numReturnFields == 2 {
+		ident, ok := fn.Decl.Type.Results.List[0].Type.(*ast.Ident)
+		if !ok {
+			log.Fatal().
+				Str("function", fn.Name).
+				Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, fn.Decl.Type.Results.List[0]))
+		}
+		goReturnType = ident.Name
+
+		if numReturnFields == 2 {
+			if IsErrorType(fn.Decl.Type.Results.List[1]) {
+				returnsAlsoError = true
+			} else {
+				log.Fatal().
+					Str("function", fn.Name).
+					Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, fn.Decl.Type.Results.List[1]))
+			}
+		}
+
+	} else {
+		log.Fatal().Msgf("Invalid return signature for function %s", fn.Name)
+	}
+
+	return &FunctionSignature{
+		GoFuncName:       fn.Name,
+		Args:             args,
+		GoReturnType:     GoType(goReturnType),
+		GoDoc:            strings.TrimSpace(fnDoc),
+		ReturnsAlsoError: returnsAlsoError,
+	}
 }
 
 func GetSourceString(content []byte, node ast.Node) string {
@@ -330,108 +381,31 @@ func DoPyExports(args Args, fnames []string) {
 			log.Fatal().Str("filename", fname).Err(err).Msg("")
 		}
 
-		ast.Inspect(f, func(n ast.Node) bool {
-			switch t := n.(type) {
-			case *ast.File:
-				if fnPackage == "" {
-					fnPackage = t.Name.Name
-					log.Trace().Msgf("Detected Go package '%s'", fnPackage)
-				} else if t.Name.Name != fnPackage {
-					log.Trace().Msgf("Detected Go package '%s' != '%s'", t.Name.Name, fnPackage)
-					log.Fatal().Msg("All files need to be in the same package!")
-				}
+		pkg, err := doc.NewFromFiles(fset, []*ast.File{f}, "", doc.PreserveAST)
+		if err != nil {
+			log.Fatal().Str("filename", fname).Err(err).Msg("")
+		}
 
-			// Find all function declarations
-			case *ast.FuncDecl:
-				isExport := FuncDeclDocContains(t, "go:pyexport")
+		if fnPackage == "" {
+			fnPackage = pkg.Name
+			log.Trace().Msgf("Detected Go package '%s'", fnPackage)
+		} else if pkg.Name != fnPackage {
+			log.Trace().Msgf("Detected Go package '%s' != '%s'", pkg.Name, fnPackage)
+			log.Fatal().Msg("All files need to be in the same package!")
+		}
 
-				numReturnFields := t.Type.Results.NumFields()
-				// Check if the function returns a *C.PyObject
-				returnsCPythonPtr := (numReturnFields == 1) && IsCPyObjectPtr(t.Type.Results.List[0])
-
-				if !(isExport || returnsCPythonPtr) {
-					log.Trace().Msgf("Skip function %s", t.Name.Name)
-					return true
-				}
-
-				var args []FunctionArgument
-				for _, list := range t.Type.Params.List {
-					typeIdent, ok := list.Type.(*ast.Ident)
-					if ok {
-						for _, n := range list.Names {
-							args = append(args, FunctionArgument{
-								GoName: n.Name,
-								GoType: typeIdent.Name,
-							})
-						}
-						continue
-					}
-
-					if IsCPyObjectPtr(list) {
-						for _, n := range list.Names {
-							args = append(args, FunctionArgument{
-								GoName: n.Name,
-								GoType: "*C.PyObject",
-							})
-						}
-						continue
-					}
-
-					log.Fatal().
-						Str("function", t.Name.Name).
-						Str("filename", fname).
-						Msgf("Argument type '%s' not supported!", GetSourceString(content, list.Type))
-					return true
-				}
-
-				var goReturnType string
-				var returnsAlsoError bool
-				if returnsCPythonPtr {
-					goReturnType = "*C.PyObject"
-
-				} else if numReturnFields == 0 {
-					goReturnType = "" // Equivalent of Python's None
-
-				} else if numReturnFields == 1 || numReturnFields == 2 {
-					ident, ok := t.Type.Results.List[0].Type.(*ast.Ident)
-					if !ok {
-						log.Fatal().
-							Str("function", t.Name.Name).
-							Str("filename", fname).
-							Msgf("Return type '%s' not supported!", GetSourceString(content, t.Type.Results.List[0]))
-					}
-					goReturnType = ident.Name
-
-					if numReturnFields == 2 {
-						if IsErrorType(t.Type.Results.List[1]) {
-							returnsAlsoError = true
-						} else {
-							log.Fatal().
-								Str("function", t.Name.Name).
-								Str("filename", fname).
-								Msgf("Return type '%s' not supported!", GetSourceString(content, t.Type.Results.List[1]))
-						}
-					}
-
-				} else {
-					log.Fatal().
-						Str("filename", fname).
-						Msgf("Invalid return signature for function %s", t.Name.Name)
-				}
-
-				fnSignatures = append(fnSignatures, &FunctionSignature{
-					GoFuncName:       t.Name.Name,
-					Args:             args,
-					GoReturnType:     goReturnType,
-					ReturnsAlsoError: returnsAlsoError,
-				})
-
+		for _, fn := range pkg.Funcs {
+			if fn.Level != 0 {
+				continue
+			}
+			fs := ProcessFunc(fn, content)
+			if fs != nil {
 				log.Debug().
 					Str("filename", fname).
-					Msgf("Exporting %s", t.Name.Name)
+					Msgf("Exporting %s", fn.Name)
+				fnSignatures = append(fnSignatures, fs)
 			}
-			return true
-		})
+		}
 	}
 
 	GeneratePyExportsCode(args.OutputCCode, args.OutputGoCode, fnPackage, fnSignatures, args.PyModuleName)

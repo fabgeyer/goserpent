@@ -2,6 +2,11 @@
 
 #include <Python.h>
 
+PyObject* PyIncRef(PyObject *o) {
+	Py_INCREF(o);
+	return o;
+}
+
 {{range .Functions}}{{template "cpyexport" .}}{{end}}
 static PyMethodDef GoModuleMethods[] = {
 {{range .Functions}}	{{.PyModuleDef}},

@@ -30,14 +30,20 @@ func BasicFunctionWithError(arg int) (int, error) {
 }
 
 // go:pyexport
-func FunctionReturnBool() bool {
+func FunctionReturnBool(v bool) bool {
 	fmt.Println("FunctionReturnBool()")
-	return true
+	return v
 }
 
 // go:pyexport
 func FunctionReturnNone() {
 	fmt.Println("FunctionReturnNone()")
+}
+
+// go:pyexport
+func FunctionReturnInt(arg int) int {
+	fmt.Printf("FunctionReturnInt(%d)\n", arg)
+	return arg * 2
 }
 
 // go:pyexport
