@@ -42,6 +42,7 @@ func (fs *FunctionSignature) init() {
 	if fs.initDone {
 		return
 	}
+	log.Trace().Msgf("Init %s", fs.GoFuncName)
 
 	fs.CFunctionName = "pyexport_" + ToSnakeCase(fs.GoFuncName)
 
