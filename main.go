@@ -26,6 +26,7 @@ type Args struct {
 	OutputCCode  string `long:"output-c-code" description:"Output C code file" default:"pyexports.c" required:"true"`
 	OutputGoCode string `long:"output-go-code" description:"Output Go code file" default:"pyexports.go" required:"true"`
 	PyModuleName string `long:"pymodule" description:"Name of the python module" default:"gomodule" required:"true"`
+	GoTags       string `long:"tags" description:"Go tags for the generated Go code file"`
 }
 
 func main() {

@@ -235,7 +235,7 @@ func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, f
 	return err
 }
 
-func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName string, fnSignatures []*FunctionSignature, cModuleName string) {
+func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName, goTags string, fnSignatures []*FunctionSignature, cModuleName string) {
 	if len(fnSignatures) == 0 {
 		log.Warn().Msg("Did not generate any code!")
 		return
@@ -263,11 +263,13 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName string, fnSign
 	}
 
 	data := struct {
+		GoTags                    string
 		PackageName               string
 		CModuleName               string
 		Functions                 []*FunctionSignature
 		RequiredCythonDictToGoMap []CythonDictToGoMap
 	}{
+		GoTags:                    goTags,
 		PackageName:               goPackageName,
 		CModuleName:               cModuleName,
 		Functions:                 fnSignatures,
@@ -445,5 +447,5 @@ func DoPyExports(args Args, fnames []string) {
 		}
 	}
 
-	GeneratePyExportsCode(args.OutputCCode, args.OutputGoCode, fnPackage, fnSignatures, args.PyModuleName)
+	GeneratePyExportsCode(args.OutputCCode, args.OutputGoCode, fnPackage, args.GoTags, fnSignatures, args.PyModuleName)
 }
