@@ -1,0 +1,13 @@
+
+func CythonDictToGoMap_{{.GoMapKeyType}}_{{.GoMapValType}}(dict *C.PyObject) map[{{.GoMapKeyType}}]{{.GoMapValType}} {
+	m := make(map[{{.GoMapKeyType}}]{{.GoMapValType}})
+	var pyKey, pyVal *C.PyObject
+	var pos C.Py_ssize_t
+	for {
+		if C.PyDict_Next(dict, &pos, &pyKey, &pyVal) == 0 {
+			break
+		}
+		m[{{pyObjectToGo .GoMapKeyType "pyKey"}}] = {{pyObjectToGo .GoMapValType "pyVal"}}
+	}
+	return m
+}

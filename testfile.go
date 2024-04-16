@@ -51,3 +51,8 @@ func FunctionReturnError(arg int) error {
 	fmt.Printf("FunctionReturnError(%d)\n", arg)
 	return fmt.Errorf("Example error")
 }
+
+// go:pyexport
+func FunctionMapArgument(arg map[string]int) {
+	fmt.Printf("FunctionMapArgument(%v)\n", arg)
+}

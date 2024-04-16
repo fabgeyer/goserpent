@@ -7,11 +7,17 @@ package {{.PackageName}}
 #include <Python.h>
 
 PyObject* PyIncRef(PyObject *o);
+char *PyObjectToChar(PyObject *obj);
 {{range .Functions}}{{if .HasArgs }}{{template "cdefexport" .}}{{end}}{{end}}*/
 import "C"
 
 func asGoBool(v C.int) bool {
 	return v != 0
+}
+
+func pyObjectAsGoString(v *C.PyObject) string {
+	cstr := C.PyObjectToChar(v)
+	return C.GoString(cstr)
 }
 
 func asPyBool(v bool) *C.PyObject {
@@ -41,4 +47,5 @@ func asPyError(err error) *C.PyObject {
 	C.PyErr_SetString(C.PyExc_RuntimeError, C.CString(err.Error()))
 	return nil
 }
+{{range .RequiredCythonDictToGoMap}}{{template "cythondicttogomap" .}}{{end}}
 {{range .Functions}}{{template "gopyexport" .}}{{end}}

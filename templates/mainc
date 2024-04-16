@@ -7,6 +7,18 @@ PyObject* PyIncRef(PyObject *o) {
 	return o;
 }
 
+char *PyObjectToChar(PyObject *obj) {
+    char *result = NULL;
+    if (PyUnicode_Check(obj)) {
+        PyObject *utf8_string = PyUnicode_AsUTF8String(obj);
+        if (utf8_string != NULL) {
+            result = PyBytes_AsString(utf8_string);
+            Py_DECREF(utf8_string);
+        }
+    }
+    return result;
+}
+
 {{range .Functions}}{{template "cpyexport" .}}{{end}}
 static PyMethodDef GoModuleMethods[] = {
 {{range .Functions}}	{{.PyModuleDef}},

@@ -147,9 +147,18 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 	}
 }
 
+type CythonDictToGoMap struct {
+	GoMapKeyType GoType
+	GoMapValType GoType
+}
+
+var requiredCythonDictToGoMap map[CythonDictToGoMap]bool = make(map[CythonDictToGoMap]bool)
+
 type FunctionArgument struct {
 	GoType
-	GoName string
+	GoMapKeyType GoType
+	GoMapValType GoType
+	GoName       string
 }
 
 func (fa *FunctionArgument) PythonName() string {
@@ -166,6 +175,12 @@ func (fa *FunctionArgument) CToGoFunction() string {
 		return string(fa.GoType)
 	case "string":
 		return "C.GoString"
+	case "map":
+		requiredCythonDictToGoMap[CythonDictToGoMap{
+			GoMapKeyType: fa.GoMapKeyType,
+			GoMapValType: fa.GoMapValType,
+		}] = true
+		return fmt.Sprintf("CythonDictToGoMap_%s_%s", fa.GoMapKeyType, fa.GoMapValType)
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
 	}
@@ -228,7 +243,8 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName string, fnSign
 
 	tmpl, err := template.New("gopy").
 		Funcs(template.FuncMap{
-			"join": strings.Join,
+			"join":         strings.Join,
+			"pyObjectToGo": TplCPyObjectToGo,
 		}).
 		ParseFS(templateFiles, "templates/*")
 	if err != nil {
@@ -239,14 +255,23 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName string, fnSign
 		fs.init()
 	}
 
+	requiredCythonDictToGoMapList := make([]CythonDictToGoMap, len(requiredCythonDictToGoMap))
+	i := 0
+	for k, _ := range requiredCythonDictToGoMap {
+		requiredCythonDictToGoMapList[i] = k
+		i++
+	}
+
 	data := struct {
-		PackageName string
-		CModuleName string
-		Functions   []*FunctionSignature
+		PackageName               string
+		CModuleName               string
+		Functions                 []*FunctionSignature
+		RequiredCythonDictToGoMap []CythonDictToGoMap
 	}{
-		PackageName: goPackageName,
-		CModuleName: cModuleName,
-		Functions:   fnSignatures,
+		PackageName:               goPackageName,
+		CModuleName:               cModuleName,
+		Functions:                 fnSignatures,
+		RequiredCythonDictToGoMap: requiredCythonDictToGoMapList,
 	}
 
 	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
@@ -293,12 +318,23 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 
 	var args []FunctionArgument
 	for _, list := range fn.Decl.Type.Params.List {
-		typeIdent, ok := list.Type.(*ast.Ident)
-		if ok {
+		switch t := list.Type.(type) {
+		case *ast.Ident:
 			for _, n := range list.Names {
 				args = append(args, FunctionArgument{
 					GoName: n.Name,
-					GoType: GoType(typeIdent.Name),
+					GoType: GoType(t.Name),
+				})
+			}
+			continue
+
+		case *ast.MapType:
+			for _, n := range list.Names {
+				args = append(args, FunctionArgument{
+					GoName:       n.Name,
+					GoType:       "map",
+					GoMapKeyType: GoType(t.Key.(*ast.Ident).Name),
+					GoMapValType: GoType(t.Value.(*ast.Ident).Name),
 				})
 			}
 			continue

@@ -29,7 +29,7 @@ func (g GoType) PyArgFormat() string {
 		return "d"
 	case "string":
 		return "s"
-	case "*C.PyObject":
+	case "map", "*C.PyObject":
 		return "O"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", g))
@@ -58,7 +58,7 @@ func (g GoType) GoCType() string {
 		return "C.double"
 	case "string":
 		return "*C.char"
-	case "*C.PyObject":
+	case "map", "*C.PyObject":
 		return "*C.PyObject"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", g))
@@ -83,7 +83,7 @@ func (g GoType) CPtrType() string {
 		return "double *"
 	case "string":
 		return "char **"
-	case "*C.PyObject":
+	case "map", "*C.PyObject":
 		return "PyObject **"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", g))
@@ -100,8 +100,23 @@ func (g GoType) PythonType() string {
 		return "str"
 	case "bool":
 		return "bool"
-	case "*C.PyObject":
+	case "map", "*C.PyObject":
 		return "object"
+	default:
+		panic(fmt.Sprintf("Type '%s' not supported", g))
+	}
+}
+
+func TplCPyObjectToGo(g GoType, cPyObjectVarName string) string {
+	switch g {
+	case "string":
+		return fmt.Sprintf("pyObjectAsGoString(%s)", cPyObjectVarName)
+	case "int", "int32", "int64", "uint", "uint32", "uint64":
+		// https://docs.python.org/3/c-api/long.html
+		return fmt.Sprintf("%s(C.PyLong_AsLong(%s))", g, cPyObjectVarName)
+	case "float32", "float64":
+		// https://docs.python.org/3/c-api/float.html
+		return fmt.Sprintf("%s(C.PyFloat_AsDouble(%s))", g, cPyObjectVarName)
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", g))
 	}

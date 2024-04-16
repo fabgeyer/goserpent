@@ -1,1 +1,1 @@
-{{if .HasArgs }}int {{.CFunctionName}}_parseargs(PyObject *args, PyObject *kwargs, {{ join .ArgsCPtrSignature ", " }});{{end}}
+{{if .HasArgs }}int {{.CFunctionName}}_parseargs(PyObject *_args, PyObject *_kwargs, {{ join .ArgsCPtrSignature ", " }});{{end}}
