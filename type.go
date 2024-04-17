@@ -2,9 +2,16 @@ package main
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 type GoType string
+
+func (g GoType) Unsupported() {
+	log.Fatal().Caller(1).Msgf("Type '%s' not supported", g)
+}
 
 func (g GoType) PyArgFormat() string {
 	// Returns the format used for PyArg_ParseTupleAndKeywords()
@@ -32,7 +39,8 @@ func (g GoType) PyArgFormat() string {
 	case "map", "*C.PyObject":
 		return "O"
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported", g))
+		g.Unsupported()
+		panic("")
 	}
 }
 
@@ -61,7 +69,8 @@ func (g GoType) GoCType() string {
 	case "map", "*C.PyObject":
 		return "*C.PyObject"
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported", g))
+		g.Unsupported()
+		panic("")
 	}
 }
 
@@ -86,7 +95,8 @@ func (g GoType) CPtrType() string {
 	case "map", "*C.PyObject":
 		return "PyObject **"
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported", g))
+		g.Unsupported()
+		panic("")
 	}
 }
 
@@ -105,7 +115,11 @@ func (g GoType) PythonType() string {
 	case "*C.PyObject":
 		return "object"
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported", g))
+		if strings.HasPrefix(string(g), "*") {
+			return string(g[1:])
+		}
+		g.Unsupported()
+		panic("")
 	}
 }
 
@@ -120,6 +134,7 @@ func TplCPyObjectToGo(g GoType, cPyObjectVarName string) string {
 		// https://docs.python.org/3/c-api/float.html
 		return fmt.Sprintf("%s(C.PyFloat_AsDouble(%s))", g, cPyObjectVarName)
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported", g))
+		g.Unsupported()
+		panic("")
 	}
 }

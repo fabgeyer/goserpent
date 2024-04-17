@@ -6,11 +6,13 @@ package {{.PackageName}}
 /*
 #cgo pkg-config: python3 python3-embed
 #include <Python.h>
-
-PyObject* PyIncRef(PyObject *o);
-char *PyObjectToChar(PyObject *obj);
-{{range .Functions}}{{if .HasArgs }}{{template "cdefexport" .}}{{end}}{{end}}*/
+#include "{{.CHeaderFname}}"
+*/
 import "C"
+{{if .Imports}}
+import ({{range .Imports}}
+	"{{.}}"{{end}}
+){{end}}
 
 func asGoBool(v C.int) bool {
 	return v != 0
@@ -50,3 +52,5 @@ func asPyError(err error) *C.PyObject {
 }
 {{range .RequiredCythonDictToGoMap}}{{template "cythondicttogomap" .}}{{end}}
 {{range .Functions}}{{template "gopyexport" .}}{{end}}
+{{range .Types}}{{range .Methods}}{{template "gopyexport" .}}{{end}}{{end}}
+{{range .Types}}{{range .Funcs}}{{template "gopyexport" .}}{{end}}{{end}}

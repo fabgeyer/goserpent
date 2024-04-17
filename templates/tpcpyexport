@@ -1,0 +1,18 @@
+{{range .Methods}}{{template "fncpyexport" .}}{{end}}
+
+static PyMethodDef {{.GoTypeName}}_methods[] = {
+{{range .Methods}}	{{.PyModuleDef}},
+{{end}}	{NULL, NULL, 0, NULL}
+};
+
+PyObject *{{.GoTypeName}}_TpNew(PyTypeObject *type, PyObject *args, PyObject *kwds);
+
+static PyTypeObject {{.PyTypeObjectName}} = {
+    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "{{.GoTypeName}}",
+    .tp_basicsize = sizeof({{.GoTypeName}}),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_new = {{.GoTypeName}}_TpNew,
+    .tp_methods = {{.GoTypeName}}_methods,
+};

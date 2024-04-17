@@ -1,6 +1,0 @@
-{{if .HasArgs }}PyObject* {{.CFunctionName}}(PyObject *self, PyObject *_args, PyObject *_kwargs);
-int {{.CFunctionName}}_parseargs(PyObject *_args, PyObject *_kwargs, {{ join .ArgsCPtrSignature ", " }}) {
-	static char *kwlist[] = {"{{ join .ArgsPythonNames "\", \""}}", NULL};
-	return PyArg_ParseTupleAndKeywords(_args, _kwargs, "|{{.PyArgFormat}}", kwlist, {{ join .ArgsPythonNames ", "}});
-}
-{{else}}PyObject *{{.CFunctionName}}();{{end}}

@@ -21,12 +21,13 @@ func init() {
 }
 
 type Args struct {
-	Debug        []bool `long:"debug" short:"d" description:"Enable debug messages"`
-	OutputDir    string `long:"output-dir" description:"Output directory"`
-	OutputCCode  string `long:"output-c-code" description:"Output C code file" default:"pyexports.c" required:"true"`
-	OutputGoCode string `long:"output-go-code" description:"Output Go code file" default:"pyexports.go" required:"true"`
-	PyModuleName string `long:"pymodule" description:"Name of the python module" default:"gomodule" required:"true"`
-	GoTags       string `long:"tags" description:"Go tags for the generated Go code file"`
+	Debug          []bool `long:"debug" short:"d" description:"Enable debug messages"`
+	OutputDir      string `long:"output-dir" description:"Output directory"`
+	OutputCCode    string `long:"output-c-code" description:"Output C code file" default:"pyexports.c" required:"true"`
+	OutputChdrCode string `long:"output-chdr-code" description:"Output C header file" default:"pyexports.h" required:"true"`
+	OutputGoCode   string `long:"output-go-code" description:"Output Go code file" default:"pyexports.go" required:"true"`
+	PyModuleName   string `long:"pymodule" description:"Name of the python module" default:"gomodule" required:"true"`
+	GoTags         string `long:"tags" description:"Go tags for the generated Go code file"`
 }
 
 func main() {
@@ -44,6 +45,7 @@ func main() {
 
 	if args.OutputDir != "" {
 		args.OutputCCode = path.Join(args.OutputDir, args.OutputCCode)
+		args.OutputChdrCode = path.Join(args.OutputDir, args.OutputChdrCode)
 		args.OutputGoCode = path.Join(args.OutputDir, args.OutputGoCode)
 	}
 	DoPyExports(args, rargs)

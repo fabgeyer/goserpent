@@ -3,7 +3,7 @@
 `goserpent` generates CPython wrappers from Go functions. The wrapped Go functions can then be directly called from Python.
 
 This project can be seen as a simplified version of [`gopy`](https://github.com/go-python/gopy).
-`goserpent` can only export Go function, and the Go code can directly interact with `PyObject` structures.
+`goserpent` can export Go functions and structures, and the Go code can directly interact with `PyObject` structures.
 `gopy` exports Go functions and strutures, and is much more mature than `goserpent`.
 Use `goserpent` if you need to export Go functions directly interacting with `PyObject` structures.
 Otherwise `gopy` is a better choice.
@@ -60,8 +60,9 @@ func ExampleFunctionWithError(arg int) (int, error) {
 }
 ```
 
+There is experimental support for exporting Go structures to Python. See `testfile.go` for an example.
+
 ## Limitations
 
 - `goserpent` only supports a small subset of native Go types for the function's argument and return types.
-- `goserpent` does not export Go structures to Python.
 - `goserpent` does not directly generate and compile a Python package.

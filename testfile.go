@@ -58,3 +58,19 @@ func FunctionReturnError(arg int) error {
 func FunctionMapArgument(arg map[string]int) {
 	fmt.Printf("FunctionMapArgument(%v)\n", arg)
 }
+
+type ExportedType struct {
+	Value int
+}
+
+// go:pyexport
+func NewExportedType(v int) *ExportedType {
+	return &ExportedType{
+		Value: v,
+	}
+}
+
+// go:pyexport
+func (t *ExportedType) GetValue() int {
+	return t.Value
+}

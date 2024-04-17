@@ -25,6 +25,9 @@ type FunctionSignature struct {
 	Args             []FunctionArgument
 	GoReturnType     GoType
 	GoDoc            string
+	GoRecv           string
+	CRecv            string
+	CGoRecv          string
 	ReturnsAlsoError bool
 
 	initDone                     bool
@@ -44,21 +47,31 @@ func (fs *FunctionSignature) init() {
 	}
 	log.Trace().Msgf("Init %s", fs.GoFuncName)
 
-	fs.CFunctionName = "pyexport_" + ToSnakeCase(fs.GoFuncName)
+	nargs := len(fs.Args)
+	if fs.GoRecv == "" {
+		fs.CFunctionName = "pyexport_" + ToSnakeCase(fs.GoFuncName)
+	} else {
+		fs.CFunctionName = fmt.Sprintf("pyexport_%s_%s", ToSnakeCase(fs.GoRecv[1:]), ToSnakeCase(fs.GoFuncName))
+		fs.CRecv = fs.GoRecv[1:]
+		fs.CGoRecv = "*C." + fs.CRecv
+	}
 
-	fs.ArgsPythonNames = make([]string, len(fs.Args))
-	fs.ArgsPythonNamesWithTypeHints = make([]string, len(fs.Args))
-	fs.ArgsCPtrSignature = make([]string, len(fs.Args))
-	fs.ArgsGoC = make([]string, len(fs.Args))
-	fs.ArgsCToGo = make([]string, len(fs.Args))
-	fs.ArgsGoNames = make([]string, len(fs.Args))
-	for i, arg := range fs.Args {
+	fs.ArgsPythonNames = make([]string, nargs)
+	fs.ArgsPythonNamesWithTypeHints = make([]string, nargs)
+	fs.ArgsCPtrSignature = make([]string, nargs)
+	fs.ArgsGoC = make([]string, nargs)
+	fs.ArgsCToGo = make([]string, nargs)
+	fs.ArgsGoNames = make([]string, nargs)
+
+	i := 0
+	for _, arg := range fs.Args {
 		fs.ArgsPythonNames[i] = arg.PythonName()
 		fs.ArgsPythonNamesWithTypeHints[i] = fmt.Sprintf("%s: %s", arg.PythonName(), arg.PythonType())
 		fs.ArgsCPtrSignature[i] = fmt.Sprintf("%s%s", arg.CPtrType(), arg.PythonName())
 		fs.ArgsGoC[i] = fmt.Sprintf("var %s %s", arg.GoName, arg.GoCType())
 		fs.ArgsCToGo[i] = fmt.Sprintf("%s(%s)", arg.CToGoFunction(), arg.GoName)
 		fs.ArgsGoNames[i] = arg.GoName
+		i++
 	}
 
 	fs.initDone = true
@@ -66,6 +79,10 @@ func (fs *FunctionSignature) init() {
 
 func (fs *FunctionSignature) HasArgs() bool {
 	return len(fs.Args) != 0
+}
+
+func (fs *FunctionSignature) HasRecv() bool {
+	return fs.GoRecv != ""
 }
 
 func (fs *FunctionSignature) PyArgFormat() string {
@@ -82,12 +99,13 @@ func (fs *FunctionSignature) PyModuleDef() string {
 	doc, err := fs.PyModuleDefDoc(pyFunctionName)
 	if err != nil {
 		log.Fatal().
+			Caller().
 			Str("function", fs.GoFuncName).
 			Err(err).
 			Msg("Could not generate documentation")
 	}
 
-	if fs.HasArgs() {
+	if fs.HasArgs() || fs.HasRecv() {
 		return fmt.Sprintf(`{"%s", (PyCFunction)%s, METH_VARARGS | METH_KEYWORDS, %s}`, pyFunctionName, fs.CFunctionName, doc)
 	} else {
 		return fmt.Sprintf(`{"%s", %s, METH_NOARGS, %s}`, pyFunctionName, fs.CFunctionName, doc)
@@ -143,7 +161,11 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 	case "error":
 		return fmt.Sprintf("return asPyError(%s)", result)
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName))
+		if strings.HasPrefix(string(fs.GoReturnType), "*") {
+			return fmt.Sprintf("return C.New_%s(C.uintptr_t(cgo.NewHandle(%s)))", fs.GoReturnType[1:], result)
+		}
+		log.Fatal().Caller().Msgf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName)
+		panic("")
 	}
 }
 
@@ -182,7 +204,8 @@ func (fa *FunctionArgument) CToGoFunction() string {
 		}] = true
 		return fmt.Sprintf("CythonDictToGoMap_%s_%s", fa.GoMapKeyType, fa.GoMapValType)
 	default:
-		panic(fmt.Sprintf("Type '%s' not supported", fa.GoType))
+		log.Fatal().Caller().Msgf("Type '%s' not supported", fa.GoType)
+		panic("")
 	}
 }
 
@@ -235,7 +258,7 @@ func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, f
 	return err
 }
 
-func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName, goTags string, fnSignatures []*FunctionSignature, cModuleName string) {
+func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName, goTags string, fnSignatures []*FunctionSignature, tpSignatures []*TypeSignature, cModuleName string) {
 	if len(fnSignatures) == 0 {
 		log.Warn().Msg("Did not generate any code!")
 		return
@@ -248,11 +271,17 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName, goTags string
 		}).
 		ParseFS(templateFiles, "templates/*")
 	if err != nil {
-		log.Fatal().Err(err).Msg("")
+		log.Fatal().Caller().Err(err).Msg("")
 	}
 
 	for _, fs := range fnSignatures {
 		fs.init()
+	}
+
+	requiresRuntimeCgo := false
+	for _, ts := range tpSignatures {
+		ts.init()
+		requiresRuntimeCgo = requiresRuntimeCgo || len(ts.Methods) > 0 || len(ts.Funcs) > 0
 	}
 
 	requiredCythonDictToGoMapList := make([]CythonDictToGoMap, len(requiredCythonDictToGoMap))
@@ -262,40 +291,60 @@ func GeneratePyExportsCode(cCodeFname, goCodeFname, goPackageName, goTags string
 		i++
 	}
 
+	var imports []string
+	if requiresRuntimeCgo {
+		imports = append(imports, "runtime/cgo")
+	}
+
 	data := struct {
 		GoTags                    string
 		PackageName               string
 		CModuleName               string
+		CHeaderFname              string
 		Functions                 []*FunctionSignature
+		Types                     []*TypeSignature
 		RequiredCythonDictToGoMap []CythonDictToGoMap
+		Imports                   []string
 	}{
 		GoTags:                    goTags,
 		PackageName:               goPackageName,
 		CModuleName:               cModuleName,
+		CHeaderFname:              cHeaderFname,
 		Functions:                 fnSignatures,
+		Types:                     tpSignatures,
 		RequiredCythonDictToGoMap: requiredCythonDictToGoMapList,
+		Imports:                   imports,
 	}
 
 	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
 	err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to generate Go code")
+		log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
 	}
 
 	log.Trace().Str("filename", cCodeFname).Msg("Export C code")
 	err = SafeWriteTemplate(tmpl, "mainc", data, cCodeFname)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to generate C code")
+		log.Fatal().Caller().Err(err).Msg("Failed to generate C code")
 		// Cleanup generated Go code
 		os.Remove(goCodeFname)
 	}
+
+	log.Trace().Str("filename", cHeaderFname).Msg("Export C header")
+	err = SafeWriteTemplate(tmpl, "mainchdr", data, cHeaderFname)
+	if err != nil {
+		log.Fatal().Caller().Err(err).Msg("Failed to generate C header")
+		// Cleanup generated Go code
+		os.Remove(goCodeFname)
+		os.Remove(cCodeFname)
+	}
 }
 
-func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
+func ProcessDoc(doc string) (string, bool) {
 	var fnDoc string
 	var isExport bool
 
-	scanner := bufio.NewScanner(strings.NewReader(strings.TrimSpace(fn.Doc)))
+	scanner := bufio.NewScanner(strings.NewReader(strings.TrimSpace(doc)))
 	for scanner.Scan() {
 		txt := scanner.Text()
 		if strings.HasPrefix(txt, "go:pyexport") {
@@ -308,6 +357,11 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 			}
 		}
 	}
+	return fnDoc, isExport
+}
+
+func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
+	fnDoc, isExport := ProcessDoc(fn.Doc)
 
 	numReturnFields := fn.Decl.Type.Results.NumFields()
 	// Check if the function returns a *C.PyObject
@@ -353,6 +407,7 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 		}
 
 		log.Fatal().
+			Caller().
 			Str("function", fn.Name).
 			Msgf("Argument type '%s' not supported!", GetSourceString(sourceContent, list.Type))
 		return nil
@@ -367,26 +422,57 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 		goReturnType = "" // Equivalent of Python's None
 
 	} else if numReturnFields == 1 || numReturnFields == 2 {
-		ident, ok := fn.Decl.Type.Results.List[0].Type.(*ast.Ident)
-		if !ok {
+		switch v := fn.Decl.Type.Results.List[0].Type.(type) {
+		case *ast.Ident:
+			goReturnType = v.Name
+
+		case *ast.StarExpr:
+			// Pointer value
+			ident, ok := v.X.(*ast.Ident)
+			if !ok {
+				log.Fatal().
+					Caller().
+					Str("function", fn.Name).
+					Str("type", fmt.Sprintf("%T", v.X)).
+					Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, v.X))
+			}
+			goReturnType = "*" + ident.Name
+
+		default:
 			log.Fatal().
+				Caller().
 				Str("function", fn.Name).
-				Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, fn.Decl.Type.Results.List[0]))
+				Str("type", fmt.Sprintf("%T", v)).
+				Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, v))
 		}
-		goReturnType = ident.Name
 
 		if numReturnFields == 2 {
 			if IsErrorType(fn.Decl.Type.Results.List[1]) {
 				returnsAlsoError = true
 			} else {
 				log.Fatal().
+					Caller().
 					Str("function", fn.Name).
+					Str("type", fmt.Sprintf("%T", fn.Decl.Type.Results.List[1])).
 					Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, fn.Decl.Type.Results.List[1]))
 			}
 		}
 
 	} else {
-		log.Fatal().Msgf("Invalid return signature for function %s", fn.Name)
+		log.Fatal().
+			Caller().
+			Msgf("Invalid return signature for function %s", fn.Name)
+	}
+
+	var recv string
+	if fn.Recv != "" {
+		if !strings.HasPrefix(fn.Recv, "*") {
+			log.Fatal().
+				Caller().
+				Msgf("Non-pointer receiver not supported for %s", fn.Recv)
+		} else {
+			recv = fn.Recv
+		}
 	}
 
 	return &FunctionSignature{
@@ -394,7 +480,63 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 		Args:             args,
 		GoReturnType:     GoType(goReturnType),
 		GoDoc:            strings.TrimSpace(fnDoc),
+		GoRecv:           recv,
 		ReturnsAlsoError: returnsAlsoError,
+	}
+}
+
+type TypeSignature struct {
+	GoTypeName       string
+	PyTypeObjectName string
+	GoDoc            string
+	Methods          []*FunctionSignature
+	Funcs            []*FunctionSignature
+}
+
+func (ts *TypeSignature) init() {
+	for _, m := range ts.Methods {
+		m.init()
+	}
+	for _, f := range ts.Funcs {
+		f.init()
+	}
+}
+
+func ProcessType(tp *doc.Type, sourceContent []byte) *TypeSignature {
+	var methods []*FunctionSignature
+	for _, fn := range tp.Methods {
+		if fn.Level != 0 {
+			continue
+		}
+		fs := ProcessFunc(fn, sourceContent)
+		if fs != nil {
+			methods = append(methods, fs)
+		}
+	}
+
+	var funcs []*FunctionSignature
+	for _, fn := range tp.Funcs {
+		if fn.Level != 0 {
+			continue
+		}
+		fs := ProcessFunc(fn, sourceContent)
+		if fs != nil {
+			funcs = append(funcs, fs)
+		}
+	}
+
+	if len(methods) == 0 && len(funcs) == 0 {
+		return nil
+	}
+
+	tpDoc, _ := ProcessDoc(tp.Doc)
+
+	return &TypeSignature{
+		GoTypeName:       tp.Name,
+		PyTypeObjectName: fmt.Sprintf("PyTo_%s", tp.Name),
+		GoDoc:            tpDoc,
+		Methods:          methods,
+		Funcs:            funcs,
 	}
 }
 
@@ -405,24 +547,25 @@ func GetSourceString(content []byte, node ast.Node) string {
 func DoPyExports(args Args, fnames []string) {
 	var fnPackage string
 	var fnSignatures []*FunctionSignature
+	var tpSignatures []*TypeSignature
 
 	for _, fname := range fnames {
 		log.Trace().Msgf("Process %s", fname)
 
 		content, err := ioutil.ReadFile(fname)
 		if err != nil {
-			log.Fatal().Str("filename", fname).Err(err).Msg("")
+			log.Fatal().Caller().Str("filename", fname).Err(err).Msg("")
 		}
 
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, fname, content, parser.ParseComments)
 		if err != nil {
-			log.Fatal().Str("filename", fname).Err(err).Msg("")
+			log.Fatal().Caller().Str("filename", fname).Err(err).Msg("")
 		}
 
 		pkg, err := doc.NewFromFiles(fset, []*ast.File{f}, "", doc.PreserveAST)
 		if err != nil {
-			log.Fatal().Str("filename", fname).Err(err).Msg("")
+			log.Fatal().Caller().Str("filename", fname).Err(err).Msg("")
 		}
 
 		if fnPackage == "" {
@@ -430,7 +573,7 @@ func DoPyExports(args Args, fnames []string) {
 			log.Trace().Msgf("Detected Go package '%s'", fnPackage)
 		} else if pkg.Name != fnPackage {
 			log.Trace().Msgf("Detected Go package '%s' != '%s'", pkg.Name, fnPackage)
-			log.Fatal().Msg("All files need to be in the same package!")
+			log.Fatal().Caller().Msg("All files need to be in the same package!")
 		}
 
 		for _, fn := range pkg.Funcs {
@@ -438,14 +581,30 @@ func DoPyExports(args Args, fnames []string) {
 				continue
 			}
 			fs := ProcessFunc(fn, content)
-			if fs != nil {
+			if fs == nil {
+				continue
+			}
+
+			log.Debug().
+				Str("filename", fname).
+				Msgf("Exporting %s", fn.Name)
+			fnSignatures = append(fnSignatures, fs)
+		}
+
+		for _, tp := range pkg.Types {
+			ts := ProcessType(tp, content)
+			if ts == nil {
+				continue
+			}
+
+			for _, m := range ts.Methods {
 				log.Debug().
 					Str("filename", fname).
-					Msgf("Exporting %s", fn.Name)
-				fnSignatures = append(fnSignatures, fs)
+					Msgf("Exporting %s.%s", tp.Name, m.GoFuncName)
 			}
+			tpSignatures = append(tpSignatures, ts)
 		}
 	}
 
-	GeneratePyExportsCode(args.OutputCCode, args.OutputGoCode, fnPackage, args.GoTags, fnSignatures, args.PyModuleName)
+	GeneratePyExportsCode(args.OutputCCode, args.OutputChdrCode, args.OutputGoCode, fnPackage, args.GoTags, fnSignatures, tpSignatures, args.PyModuleName)
 }
