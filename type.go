@@ -100,7 +100,9 @@ func (g GoType) PythonType() string {
 		return "str"
 	case "bool":
 		return "bool"
-	case "map", "*C.PyObject":
+	case "map":
+		return "dict"
+	case "*C.PyObject":
 		return "object"
 	default:
 		panic(fmt.Sprintf("Type '%s' not supported", g))

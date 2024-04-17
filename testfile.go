@@ -1,3 +1,5 @@
+//go:build python
+
 package main
 
 // #cgo pkg-config: python3 python3-embed
