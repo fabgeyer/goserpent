@@ -74,3 +74,9 @@ func NewExportedType(v int) *ExportedType {
 func (t *ExportedType) GetValue() int {
 	return t.Value
 }
+
+// go:pyexport
+func (t *ExportedType) Add(v int) int {
+	t.Value += v
+	return t.Value
+}

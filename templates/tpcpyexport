@@ -1,5 +1,3 @@
-{{range .Methods}}{{template "fncpyexport" .}}{{end}}
-
 static PyMethodDef {{.GoTypeName}}_methods[] = {
 {{range .Methods}}	{{.PyModuleDef}},
 {{end}}	{NULL, NULL, 0, NULL}

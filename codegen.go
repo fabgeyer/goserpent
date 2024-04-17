@@ -162,7 +162,7 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 		return fmt.Sprintf("return asPyError(%s)", result)
 	default:
 		if strings.HasPrefix(string(fs.GoReturnType), "*") {
-			return fmt.Sprintf("return C.New_%s(C.uintptr_t(cgo.NewHandle(%s)))", fs.GoReturnType[1:], result)
+			return fmt.Sprintf("return C.new_%s(C.uintptr_t(cgo.NewHandle(%s)))", fs.GoReturnType[1:], result)
 		}
 		log.Fatal().Caller().Msgf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName)
 		panic("")

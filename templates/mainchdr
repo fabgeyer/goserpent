@@ -17,10 +17,10 @@ typedef struct {
     uintptr_t handle;
 } {{.GoTypeName}};
 
-PyObject *New_{{.GoTypeName}}(uintptr_t handle);
+PyObject *new_{{.GoTypeName}}(uintptr_t handle);
+{{range .Methods}}{{template "cdefexport" .}}{{end}}
 {{template "tpcpyexport" .}}
 {{range .Funcs}}{{template "cdefexport" .}}{{end}}
-{{range .Methods}}{{if .HasArgs}}{{template "cdefexport" .}}{{end}}{{end}}
 {{end}}
 {{range .Functions}}{{template "cdefexport" .}}{{end}}
 #endif

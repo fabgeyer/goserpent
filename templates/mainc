@@ -21,7 +21,7 @@ char *PyObjectToChar(PyObject *obj) {
 }
 
 {{range .Types}}
-PyObject *New_{{.GoTypeName}}(uintptr_t handle) {
+PyObject *new_{{.GoTypeName}}(uintptr_t handle) {
 	PyGILState_STATE gstate = PyGILState_Ensure();
 	PyTypeObject *type = &{{.PyTypeObjectName}};
 	{{.GoTypeName}} *self = ({{.GoTypeName}} *)type->tp_alloc(type, 0);
