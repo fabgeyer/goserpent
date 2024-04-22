@@ -114,6 +114,8 @@ func (g GoType) PythonType() string {
 		return "dict"
 	case "*C.PyObject":
 		return "object"
+	case "float32", "float64":
+		return "float"
 	default:
 		if strings.HasPrefix(string(g), "*") {
 			return string(g[1:])
