@@ -9,6 +9,7 @@ package {{.PackageName}}
 #include "{{.CHeaderFname}}"
 */
 import "C"
+
 {{if .Imports}}
 import ({{range .Imports}}
 	"{{.}}"{{end}}

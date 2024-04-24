@@ -21,25 +21,22 @@ func init() {
 }
 
 type Args struct {
-	Debug          []bool `long:"debug" short:"d" description:"Enable debug messages"`
-	OutputDir      string `long:"output-dir" description:"Output directory"`
-	OutputCCode    string `long:"output-c-code" description:"Output C code file" default:"pyexports.c" required:"true"`
-	OutputChdrCode string `long:"output-chdr-code" description:"Output C header file" default:"pyexports.h" required:"true"`
-	OutputGoCode   string `long:"output-go-code" description:"Output Go code file" default:"pyexports.go" required:"true"`
-	PyModuleName   string `long:"pymodule" description:"Name of the python module" default:"gomodule" required:"true"`
-	GoTags         string `long:"tags" description:"Go tags for the generated Go code file"`
+	Debug          []bool   `long:"debug" short:"d" description:"Enable debug messages"`
+	OutputDir      string   `long:"output-dir" description:"Output directory"`
+	OutputCCode    string   `long:"output-c-code" description:"Output C code file" default:"pyexports.c" required:"true"`
+	OutputChdrCode string   `long:"output-chdr-code" description:"Output C header file" default:"pyexports.h" required:"true"`
+	OutputGoCode   string   `long:"output-go-code" description:"Output Go code file" default:"pyexports.go" required:"true"`
+	PyModuleName   string   `long:"pymodule" description:"Name of the python module" default:"gomodule" required:"true"`
+	GoTags         []string `long:"tags" description:"Go tags for the generated Go code file"`
 }
 
-func main() {
-	var args Args
-	rargs, err := flags.Parse(&args)
-	if err != nil {
-		os.Exit(1)
-	}
-
-	if len(args.Debug) == 1 {
+func (a *Args) Process() {
+	switch len(args.Debug) {
+	case 0:
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	case 1:
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	} else if len(args.Debug) > 1 {
+	default:
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	}
 
@@ -48,5 +45,27 @@ func main() {
 		args.OutputChdrCode = path.Join(args.OutputDir, args.OutputChdrCode)
 		args.OutputGoCode = path.Join(args.OutputDir, args.OutputGoCode)
 	}
-	DoPyExports(args, rargs)
+
+	if args.PyModuleName == "" {
+		log.Fatal().Msg("Need to define a module name")
+	}
+}
+
+var args Args
+
+var flagparser = flags.NewParser(&args, flags.Default)
+
+func main() {
+	_, err := flagparser.Parse()
+	if err != nil {
+		switch flagsErr := err.(type) {
+		case flags.ErrorType:
+			if flagsErr == flags.ErrHelp {
+				os.Exit(0)
+			}
+			os.Exit(1)
+		default:
+			os.Exit(1)
+		}
+	}
 }

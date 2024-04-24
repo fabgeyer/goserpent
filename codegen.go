@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"embed"
 	"errors"
 	"fmt"
 	"go/ast"
 	"go/doc"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"io/ioutil"
@@ -258,10 +260,9 @@ func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, f
 	return err
 }
 
-func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName, goTags string, fnSignatures []*FunctionSignature, tpSignatures []*TypeSignature, cModuleName string) {
+func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName string, goTags []string, fnSignatures []*FunctionSignature, tpSignatures []*TypeSignature, cModuleName string) error {
 	if len(fnSignatures) == 0 {
-		log.Warn().Msg("Did not generate any code!")
-		return
+		return errors.New("No function signature exported")
 	}
 
 	tmpl, err := template.New("gopy").
@@ -306,7 +307,7 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName,
 		RequiredCythonDictToGoMap []CythonDictToGoMap
 		Imports                   []string
 	}{
-		GoTags:                    goTags,
+		GoTags:                    strings.Join(goTags, " "),
 		PackageName:               goPackageName,
 		CModuleName:               cModuleName,
 		CHeaderFname:              cHeaderFname,
@@ -317,9 +318,18 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName,
 	}
 
 	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
-	err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname)
+	var gosrcbuf bytes.Buffer
+	err = tmpl.ExecuteTemplate(&gosrcbuf, "maingo", data)
 	if err != nil {
 		log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
+	}
+	gosrc, err := format.Source(gosrcbuf.Bytes())
+	if err != nil {
+		log.Fatal().Caller().Err(err).Msg("Failed to format Go code")
+	}
+	err = os.WriteFile(goCodeFname, gosrc, 0644)
+	if err != nil {
+		log.Fatal().Caller().Err(err).Msg("Failed to write file")
 	}
 
 	log.Trace().Str("filename", cCodeFname).Msg("Export C code")
@@ -337,7 +347,9 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName,
 		// Cleanup generated Go code
 		os.Remove(goCodeFname)
 		os.Remove(cCodeFname)
+		return err
 	}
+	return nil
 }
 
 func ProcessDoc(doc string) (string, bool) {
@@ -544,7 +556,7 @@ func GetSourceString(content []byte, node ast.Node) string {
 	return string(content[node.Pos()-1 : node.End()-1])
 }
 
-func DoPyExports(args Args, fnames []string) {
+func DoPyExports(args Args, fnames []string) error {
 	var fnPackage string
 	var fnSignatures []*FunctionSignature
 	var tpSignatures []*TypeSignature
@@ -606,5 +618,5 @@ func DoPyExports(args Args, fnames []string) {
 		}
 	}
 
-	GeneratePyExportsCode(args.OutputCCode, args.OutputChdrCode, args.OutputGoCode, fnPackage, args.GoTags, fnSignatures, tpSignatures, args.PyModuleName)
+	return GeneratePyExportsCode(args.OutputCCode, args.OutputChdrCode, args.OutputGoCode, fnPackage, args.GoTags, fnSignatures, tpSignatures, args.PyModuleName)
 }
