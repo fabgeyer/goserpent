@@ -3,168 +3,315 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
-type GoType string
+type Kind uint
 
-func AsGoType(expr ast.Expr, context []byte) (GoType, error) {
+const (
+	Invalid Kind = iota
+	Bool
+	Int
+	Int8
+	Int16
+	Int32
+	Int64
+	Uint
+	Uint8
+	Uint16
+	Uint32
+	Uint64
+	Uintptr
+	Float32
+	Float64
+	Complex64
+	Complex128
+	Array
+	Chan
+	Func
+	Interface
+	Map
+	Pointer
+	Slice
+	String
+	Struct
+	UnsafePointer
+	None
+	Error
+	CPyObjectPointer
+)
+
+type GoType struct {
+	T             Kind
+	SliceElemType *GoType
+	MapKeyType    *GoType
+	MapValType    *GoType
+	PointerTo     *GoType
+	GoRepr        string
+}
+
+func ToKind(v string) Kind {
+	switch v {
+	case "int":
+		return Int
+	case "int8":
+		return Int8
+	case "int16":
+		return Int16
+	case "int32":
+		return Int32
+	case "int64":
+		return Int64
+	case "uint":
+		return Uint
+	case "uint8":
+		return Uint8
+	case "uint16":
+		return Uint16
+	case "uint32":
+		return Uint32
+	case "uint64":
+		return Uint64
+	case "bool":
+		return Bool
+	case "error":
+		return Error
+	case "float32":
+		return Float32
+	case "float64":
+		return Float64
+	case "string":
+		return String
+	default:
+		log.Fatal().Caller().Msgf("Type '%s' not supported!", v)
+	}
+	panic("")
+}
+
+func IsCPyObjectPtr(expr ast.Expr) bool {
+	sta, ok := expr.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := sta.X.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	ide, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if ide.Name == "C" && sel.Sel.Name == "PyObject" {
+		return true
+	}
+	return false
+}
+
+func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 	switch v := expr.(type) {
 	case *ast.Ident:
-		return GoType(v.Name), nil
+		return &GoType{
+			T:      ToKind(v.Name),
+			GoRepr: GetSourceString(context, expr),
+		}, nil
 
 	case *ast.StarExpr:
-		// Pointer value
-		ident, ok := v.X.(*ast.Ident)
-		if !ok {
-			return GoType(""), fmt.Errorf("Type '%s' not supported!", GetSourceString(context, v.X))
+		if IsCPyObjectPtr(v) {
+			return &GoType{T: CPyObjectPointer}, nil
+
+		} else {
+			return &GoType{
+				T:      Pointer,
+				GoRepr: GetSourceString(context, expr)[1:],
+			}, nil
 		}
-		return GoType("*" + ident.Name), nil
 
 	case *ast.ArrayType:
 		elt, err := AsGoType(v.Elt, context)
 		if err != nil {
-			return GoType(""), err
+			return nil, err
 		}
-		return GoType("[]") + elt, nil
+		return &GoType{T: Slice, SliceElemType: elt}, nil
+
+	case *ast.MapType:
+		mapKeyType, err := AsGoType(v.Key, context)
+		if err != nil {
+			return nil, err
+		}
+		mapValType, err := AsGoType(v.Value, context)
+		if err != nil {
+			return nil, err
+		}
+		return &GoType{T: Map, MapKeyType: mapKeyType, MapValType: mapValType}, nil
 
 	default:
-		return GoType(""), fmt.Errorf("Type '%s' (%T) not supported!", GetSourceString(context, expr), expr)
+		return nil, fmt.Errorf("Type '%s' (%T) not supported!", GetSourceString(context, expr), expr)
 	}
 }
 
-func (g GoType) Unsupported() {
+func (g *GoType) Unsupported() {
 	log.Fatal().Caller(1).Msgf("Type '%s' not supported", g)
 }
 
-func (g GoType) PyArgFormat() string {
+func (g *GoType) PyArgFormat() string {
 	// Returns the format used for PyArg_ParseTupleAndKeywords()
 	// https://docs.python.org/3/c-api/arg.html
 
-	switch g {
-	case "bool":
+	switch g.T {
+	case Bool:
 		return "p"
-	case "int":
+	case Int:
 		return "i"
-	case "int32":
+	case Int32:
 		return "l"
-	case "uint32":
+	case Uint32:
 		return "k"
-	case "int64":
+	case Int64:
 		return "L"
-	case "uint64":
+	case Uint64:
 		return "K"
-	case "float32":
+	case Float32:
 		return "f"
-	case "float64":
+	case Float64:
 		return "d"
-	case "string":
+	case String:
 		return "s"
-	case "map", "*C.PyObject":
+	case Map, CPyObjectPointer:
 		return "O"
-	default:
-		g.Unsupported()
-		panic("")
 	}
+	g.Unsupported()
+	panic("")
 }
 
-func (g GoType) GoCType() string {
-	switch g {
-	case "int", "bool":
+func (g *GoType) GoCType() string {
+	switch g.T {
+	case Int, Bool:
 		return "C.int"
-	case "int16":
+	case Int8:
+		return "C.int8_t"
+	case Uint8:
+		return "C.uint8_t"
+	case Int16:
 		return "C.int16_t"
-	case "uint16":
+	case Uint16:
 		return "C.uint16_t"
-	case "int32":
+	case Int32:
 		return "C.int32_t"
-	case "uint32":
+	case Uint32:
 		return "C.uint32_t"
-	case "int64":
+	case Int64:
 		return "C.int64_t"
-	case "uint64":
+	case Uint64:
 		return "C.uint64_t"
-	case "float32":
+	case Float32:
 		return "C.float"
-	case "float64":
+	case Float64:
 		return "C.double"
-	case "string":
+	case String:
 		return "*C.char"
-	case "map", "*C.PyObject":
+	case Map, CPyObjectPointer:
 		return "*C.PyObject"
-	default:
-		g.Unsupported()
-		panic("")
 	}
+	g.Unsupported()
+	panic("")
 }
 
-func (g GoType) CPtrType() string {
-	switch g {
-	case "int", "bool":
+func (g *GoType) CPtrType() string {
+	switch g.T {
+	case Int, Bool:
 		return "int *"
-	case "int32":
+	case Int32:
 		return "int32_t *"
-	case "int64":
+	case Int64:
 		return "int64_t *"
-	case "uint32":
+	case Uint32:
 		return "uint32_t *"
-	case "uint64":
+	case Uint64:
 		return "uint64_t *"
-	case "float32":
+	case Float32:
 		return "float *"
-	case "float64":
+	case Float64:
 		return "double *"
-	case "string":
+	case String:
 		return "char **"
-	case "map", "*C.PyObject":
+	case Map, CPyObjectPointer:
 		return "PyObject **"
-	default:
-		g.Unsupported()
-		panic("")
 	}
+	g.Unsupported()
+	panic("")
 }
 
-func (g GoType) PythonType() string {
-	switch g {
-	case "":
+func (g *GoType) PythonTypeHint() string {
+	switch g.T {
+	case None:
 		return "NoneType"
-	case "int", "int32", "int64", "uint", "uint32", "uint64":
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
 		return "int"
-	case "string":
+	case String:
 		return "str"
-	case "bool":
+	case Bool:
 		return "bool"
-	case "map":
-		return "dict"
-	case "*C.PyObject":
+	case Map:
+		return fmt.Sprintf("Dict[%s, %s]", g.MapKeyType.PythonTypeHint(), g.MapValType.PythonTypeHint())
+	case CPyObjectPointer:
 		return "object"
-	case "float32", "float64":
+	case Pointer:
+		return g.GoRepr
+	case Float32, Float64:
 		return "float"
-	default:
-		if strings.HasPrefix(string(g), "*") {
-			return string(g[1:])
-		} else if strings.HasPrefix(string(g), "[]") {
-			return g[2:].PythonType()
-		}
-		g.Unsupported()
-		panic("")
+	case Slice:
+		return fmt.Sprintf("List[%s]", g.SliceElemType.PythonTypeHint())
 	}
+	g.Unsupported()
+	panic("")
 }
 
-func TplCPyObjectToGo(g GoType, cPyObjectVarName string) string {
-	switch g {
-	case "string":
-		return fmt.Sprintf("pyObjectAsGoString(%s)", cPyObjectVarName)
-	case "int", "int32", "int64", "uint", "uint32", "uint64":
-		// https://docs.python.org/3/c-api/long.html
-		return fmt.Sprintf("%s(C.PyLong_AsLong(%s))", g, cPyObjectVarName)
-	case "float32", "float64":
-		// https://docs.python.org/3/c-api/float.html
-		return fmt.Sprintf("%s(C.PyFloat_AsDouble(%s))", g, cPyObjectVarName)
-	default:
-		g.Unsupported()
-		panic("")
+func (g *GoType) GoPyReturn(result string) string {
+	switch g.T {
+	case None: // Equivalent of Python's None
+		return "return C.Py_None"
+	case CPyObjectPointer:
+		return fmt.Sprintf("return %s", result)
+	case Bool:
+		return fmt.Sprintf("return asPyBool(%s)", result)
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
+		return fmt.Sprintf("return asPyLong(%s)", result)
+	case Float32, Float64:
+		return fmt.Sprintf("return asPyFloat(%s)", result)
+	case String:
+		return fmt.Sprintf("return asPyString(%s)", result)
+	case Error:
+		return fmt.Sprintf("return asPyError(%s)", result)
+	case Pointer:
+		return fmt.Sprintf("return %sToPyObject(%s)", g.GoRepr, result)
+	case Slice:
+		switch g.SliceElemType.T {
+		case Pointer:
+			return fmt.Sprintf("return asPyList(%s, func(v *%s) *C.PyObject { %s })", result, g.SliceElemType.GoRepr, g.SliceElemType.GoPyReturn("v"))
+		default:
+			return fmt.Sprintf("return asPyList(%s, func(v %s) *C.PyObject { %s })", result, g.SliceElemType.GoRepr, g.SliceElemType.GoPyReturn("v"))
+		}
 	}
+	g.Unsupported()
+	panic("")
+}
+
+func (g *GoType) IsNotNone() bool {
+	return g.T != None
+}
+
+func TplCPyObjectToGo(g *GoType, cPyObjectVarName string) string {
+	switch g.T {
+	case String:
+		return fmt.Sprintf("pyObjectAsGoString(%s)", cPyObjectVarName)
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
+		// https://docs.python.org/3/c-api/long.html
+		return fmt.Sprintf("%s(C.PyLong_AsLong(%s))", g.GoRepr, cPyObjectVarName)
+	case Float32, Float64:
+		// https://docs.python.org/3/c-api/float.html
+		return fmt.Sprintf("%s(C.PyFloat_AsDouble(%s))", g.GoRepr, cPyObjectVarName)
+	}
+	g.Unsupported()
+	panic("")
 }

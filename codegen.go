@@ -25,7 +25,7 @@ var templateFiles embed.FS
 type FunctionSignature struct {
 	GoFuncName       string
 	Args             []FunctionArgument
-	GoReturnType     GoType
+	GoReturnType     *GoType
 	GoDoc            string
 	GoRecv           string
 	CRecv            string
@@ -68,7 +68,7 @@ func (fs *FunctionSignature) init() {
 	i := 0
 	for _, arg := range fs.Args {
 		fs.ArgsPythonNames[i] = arg.PythonName()
-		fs.ArgsPythonNamesWithTypeHints[i] = fmt.Sprintf("%s: %s", arg.PythonName(), arg.PythonType())
+		fs.ArgsPythonNamesWithTypeHints[i] = fmt.Sprintf("%s: %s", arg.PythonName(), arg.PythonTypeHint())
 		fs.ArgsCPtrSignature[i] = fmt.Sprintf("%s%s", arg.CPtrType(), arg.PythonName())
 		fs.ArgsGoC[i] = fmt.Sprintf("var %s %s", arg.GoName, arg.GoCType())
 		fs.ArgsCToGo[i] = fmt.Sprintf("%s(%s)", arg.CToGoFunction(), arg.GoName)
@@ -134,8 +134,8 @@ func (fs *FunctionSignature) PyModuleDefDoc(pyFunctionName string) (string, erro
 	fs.init()
 
 	var returnSignature string
-	if fs.GoReturnType != "" && fs.GoReturnType != "error" {
-		returnSignature = fmt.Sprintf(" -> %s", fs.GoReturnType.PythonType())
+	if fs.GoReturnType.T != None && fs.GoReturnType.T != Error {
+		returnSignature = fmt.Sprintf(" -> %s", fs.GoReturnType.PythonTypeHint())
 	}
 
 	signature := fmt.Sprintf("%s(%s)%s", pyFunctionName, strings.Join(fs.ArgsPythonNamesWithTypeHints, ", "), returnSignature)
@@ -147,42 +147,7 @@ func (fs *FunctionSignature) PyModuleDefDoc(pyFunctionName string) (string, erro
 }
 
 func (fs *FunctionSignature) GoPyReturn(result string) string {
-	switch fs.GoReturnType {
-	case "": // Equivalent of Python's None
-		return "return C.Py_None"
-	case "*C.PyObject":
-		return fmt.Sprintf("return %s", result)
-	case "bool":
-		return fmt.Sprintf("return asPyBool(%s)", result)
-	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
-		return fmt.Sprintf("return asPyLong(%s)", result)
-	case "float32", "float64":
-		return fmt.Sprintf("return asPyFloat(%s)", result)
-	case "string":
-		return fmt.Sprintf("return asPyString(%s)", result)
-	case "error":
-		return fmt.Sprintf("return asPyError(%s)", result)
-	default:
-		if strings.HasPrefix(string(fs.GoReturnType), "*") {
-			return fmt.Sprintf("return %sToPyObject(%s)", fs.GoReturnType[1:], result)
-
-		} else if strings.HasPrefix(string(fs.GoReturnType), "[]") {
-			switch fs.GoReturnType[2:] {
-			case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
-				return fmt.Sprintf("return asPyList(%s, asPyLong)", result)
-			case "float32", "float64":
-				return fmt.Sprintf("return asPyList(%s, asPyFloat)", result)
-			case "string":
-				return fmt.Sprintf("return asPyList(%s, asPyString)", result)
-			}
-			if strings.HasPrefix(string(fs.GoReturnType[2:]), "*") {
-				return fmt.Sprintf("return asPyList(%s, %sToPyObject)", result, fs.GoReturnType[3:])
-			}
-		}
-
-		log.Fatal().Caller().Msgf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName)
-		panic("")
-	}
+	return fs.GoReturnType.GoPyReturn(result)
 }
 
 type CythonDictToGoMap struct {
@@ -193,10 +158,8 @@ type CythonDictToGoMap struct {
 var requiredCythonDictToGoMap map[CythonDictToGoMap]bool = make(map[CythonDictToGoMap]bool)
 
 type FunctionArgument struct {
-	GoType
-	GoMapKeyType GoType
-	GoMapValType GoType
-	GoName       string
+	*GoType
+	GoName string
 }
 
 func (fa *FunctionArgument) PythonName() string {
@@ -204,47 +167,25 @@ func (fa *FunctionArgument) PythonName() string {
 }
 
 func (fa *FunctionArgument) CToGoFunction() string {
-	switch fa.GoType {
-	case "*C.PyObject":
+	switch fa.GoType.T {
+	case CPyObjectPointer:
 		return ""
-	case "bool":
+	case Bool:
 		return "asGoBool"
-	case "int", "uint", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64":
-		return string(fa.GoType)
-	case "string":
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64:
+		return fa.GoType.GoRepr
+	case String:
 		return "C.GoString"
-	case "map":
+	case Map:
 		requiredCythonDictToGoMap[CythonDictToGoMap{
-			GoMapKeyType: fa.GoMapKeyType,
-			GoMapValType: fa.GoMapValType,
+			GoMapKeyType: *fa.GoType.MapKeyType,
+			GoMapValType: *fa.GoType.MapValType,
 		}] = true
-		return fmt.Sprintf("CythonDictToGoMap_%s_%s", fa.GoMapKeyType, fa.GoMapValType)
+		return fmt.Sprintf("CythonDictToGoMap_%s_%s", fa.GoType.MapKeyType.GoRepr, fa.GoType.MapValType.GoRepr)
 	default:
 		log.Fatal().Caller().Msgf("Type '%s' not supported", fa.GoType)
 		panic("")
 	}
-}
-
-func IsCPyObjectPtr(field *ast.Field) bool {
-	sta, ok := field.Type.(*ast.StarExpr)
-	if !ok {
-		return false
-	}
-
-	sel, ok := sta.X.(*ast.SelectorExpr)
-	if !ok {
-		return false
-	}
-
-	ide, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return false
-	}
-
-	if ide.Name == "C" && sel.Sel.Name == "PyObject" {
-		return true
-	}
-	return false
 }
 
 func IsErrorType(field *ast.Field) bool {
@@ -331,19 +272,29 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		Imports:                   imports,
 	}
 
+	withGoFormatting := true
 	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
-	var gosrcbuf bytes.Buffer
-	err = tmpl.ExecuteTemplate(&gosrcbuf, "maingo", data)
-	if err != nil {
-		log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
-	}
-	gosrc, err := format.Source(gosrcbuf.Bytes())
-	if err != nil {
-		log.Fatal().Caller().Err(err).Msg("Failed to format Go code")
-	}
-	err = os.WriteFile(goCodeFname, gosrc, 0644)
-	if err != nil {
-		log.Fatal().Caller().Err(err).Msg("Failed to write file")
+	if withGoFormatting {
+		var gosrcbuf bytes.Buffer
+		err = tmpl.ExecuteTemplate(&gosrcbuf, "maingo", data)
+		if err != nil {
+			log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
+		}
+		gosrc, err := format.Source(gosrcbuf.Bytes())
+		if err != nil {
+			println(string(gosrcbuf.Bytes()))
+			log.Fatal().Caller().Err(err).Msg("Failed to format Go code")
+		}
+		err = os.WriteFile(goCodeFname, gosrc, 0644)
+		if err != nil {
+			log.Fatal().Caller().Err(err).Msg("Failed to write file")
+		}
+	} else {
+		err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname)
+		if err != nil {
+			log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
+			os.Remove(goCodeFname)
+		}
 	}
 
 	log.Trace().Str("filename", cCodeFname).Msg("Export C code")
@@ -391,7 +342,7 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 
 	numReturnFields := fn.Decl.Type.Results.NumFields()
 	// Check if the function returns a *C.PyObject
-	returnsCPythonPtr := (numReturnFields == 1) && IsCPyObjectPtr(fn.Decl.Type.Results.List[0])
+	returnsCPythonPtr := (numReturnFields == 1) && IsCPyObjectPtr(fn.Decl.Type.Results.List[0].Type)
 
 	if !(isExport || returnsCPythonPtr) {
 		log.Trace().Msgf("Skip function %s", fn.Name)
@@ -400,52 +351,32 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 
 	var args []FunctionArgument
 	for _, list := range fn.Decl.Type.Params.List {
-		switch t := list.Type.(type) {
-		case *ast.Ident:
-			for _, n := range list.Names {
-				args = append(args, FunctionArgument{
-					GoName: n.Name,
-					GoType: GoType(t.Name),
-				})
-			}
-			continue
-
-		case *ast.MapType:
-			for _, n := range list.Names {
-				args = append(args, FunctionArgument{
-					GoName:       n.Name,
-					GoType:       "map",
-					GoMapKeyType: GoType(t.Key.(*ast.Ident).Name),
-					GoMapValType: GoType(t.Value.(*ast.Ident).Name),
-				})
-			}
-			continue
+		goType, err := AsGoType(list.Type, sourceContent)
+		if err != nil {
+			log.Fatal().
+				Caller().
+				Str("function", fn.Name).
+				Msgf("Argument type '%s' not supported!", GetSourceString(sourceContent, list.Type))
 		}
 
-		if IsCPyObjectPtr(list) {
-			for _, n := range list.Names {
-				args = append(args, FunctionArgument{
-					GoName: n.Name,
-					GoType: "*C.PyObject",
-				})
+		for _, n := range list.Names {
+			if err != nil {
+				log.Fatal().Caller().Err(err).Send()
 			}
-			continue
+			args = append(args, FunctionArgument{
+				GoName: n.Name,
+				GoType: goType,
+			})
 		}
-
-		log.Fatal().
-			Caller().
-			Str("function", fn.Name).
-			Msgf("Argument type '%s' not supported!", GetSourceString(sourceContent, list.Type))
-		return nil
 	}
 
-	var goReturnType GoType
+	var goReturnType *GoType
 	var returnsAlsoError bool
 	if returnsCPythonPtr {
-		goReturnType = "*C.PyObject"
+		goReturnType = &GoType{T: CPyObjectPointer}
 
 	} else if numReturnFields == 0 {
-		goReturnType = "" // Equivalent of Python's None
+		goReturnType = &GoType{T: None} // Equivalent of Python's None
 
 	} else if numReturnFields == 1 || numReturnFields == 2 {
 		var err error

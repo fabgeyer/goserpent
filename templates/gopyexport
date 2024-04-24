@@ -7,7 +7,7 @@ func {{.CFunctionName}}(self {{if .HasRecv}}{{.CGoRecv}}{{else}}*C.PyObject{{end
 		return nil
 	}{{end}}{{else}}
 func {{.CFunctionName}}() *C.PyObject {{"{"}}{{end}}
-	{{if .GoReturnType}}_res{{if .ReturnsAlsoError}}, err{{end}} := {{end}}{{if .HasRecv}}obj.{{end}}{{.GoFuncName}}({{ join .ArgsCToGo ", "}}){{if .ReturnsAlsoError}}
+	{{if .GoReturnType.IsNotNone}}_res{{if .ReturnsAlsoError}}, err{{end}} := {{end}}{{if .HasRecv}}obj.{{end}}{{.GoFuncName}}({{ join .ArgsCToGo ", "}}){{if .ReturnsAlsoError}}
 	if err != nil {
 		C.PyErr_SetString(C.PyExc_RuntimeError, C.CString(err.Error()))
 		return nil

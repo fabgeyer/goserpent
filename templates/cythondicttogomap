@@ -1,6 +1,6 @@
 
-func CythonDictToGoMap_{{.GoMapKeyType}}_{{.GoMapValType}}(dict *C.PyObject) map[{{.GoMapKeyType}}]{{.GoMapValType}} {
-	m := make(map[{{.GoMapKeyType}}]{{.GoMapValType}})
+func CythonDictToGoMap_{{.GoMapKeyType.GoRepr}}_{{.GoMapValType.GoRepr}}(dict *C.PyObject) map[{{.GoMapKeyType.GoRepr}}]{{.GoMapValType.GoRepr}} {
+	m := make(map[{{.GoMapKeyType.GoRepr}}]{{.GoMapValType.GoRepr}})
 	var pyKey, pyVal *C.PyObject
 	var pos C.Py_ssize_t
 	for {
