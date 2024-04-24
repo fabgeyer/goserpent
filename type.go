@@ -2,12 +2,38 @@ package main
 
 import (
 	"fmt"
+	"go/ast"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
 
 type GoType string
+
+func AsGoType(expr ast.Expr, context []byte) (GoType, error) {
+	switch v := expr.(type) {
+	case *ast.Ident:
+		return GoType(v.Name), nil
+
+	case *ast.StarExpr:
+		// Pointer value
+		ident, ok := v.X.(*ast.Ident)
+		if !ok {
+			return GoType(""), fmt.Errorf("Type '%s' not supported!", GetSourceString(context, v.X))
+		}
+		return GoType("*" + ident.Name), nil
+
+	case *ast.ArrayType:
+		elt, err := AsGoType(v.Elt, context)
+		if err != nil {
+			return GoType(""), err
+		}
+		return GoType("[]") + elt, nil
+
+	default:
+		return GoType(""), fmt.Errorf("Type '%s' (%T) not supported!", GetSourceString(context, expr), expr)
+	}
+}
 
 func (g GoType) Unsupported() {
 	log.Fatal().Caller(1).Msgf("Type '%s' not supported", g)
@@ -119,6 +145,8 @@ func (g GoType) PythonType() string {
 	default:
 		if strings.HasPrefix(string(g), "*") {
 			return string(g[1:])
+		} else if strings.HasPrefix(string(g), "[]") {
+			return g[2:].PythonType()
 		}
 		g.Unsupported()
 		panic("")

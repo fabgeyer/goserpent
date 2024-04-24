@@ -49,6 +49,16 @@ func FunctionReturnInt(arg int) int {
 }
 
 // go:pyexport
+func FunctionReturnIntList(arg int) []int {
+	return []int{arg, arg + 1}
+}
+
+// go:pyexport
+func FunctionReturnIntFloat(arg float32) []float32 {
+	return []float32{arg, arg * 2}
+}
+
+// go:pyexport
 func FunctionReturnError(arg int) error {
 	fmt.Printf("FunctionReturnError(%d)\n", arg)
 	return fmt.Errorf("Example error")
@@ -67,6 +77,14 @@ type ExportedType struct {
 func NewExportedType(v int) *ExportedType {
 	return &ExportedType{
 		Value: v,
+	}
+}
+
+// go:pyexport
+func NewExportedTypes(x, y int) []*ExportedType {
+	return []*ExportedType{
+		{Value: x},
+		{Value: y},
 	}
 }
 

@@ -32,8 +32,16 @@ func asPyBool(v bool) *C.PyObject {
 	}
 }
 
-func asPyLong[T int | int8 | int16 | int32](v T) *C.PyObject {
+func asPyLong[T int | int8 | int16 | int32 | int64 | uint | uint8 | uint16 | uint32 | uint64](v T) *C.PyObject {
 	return C.PyIncRef(C.PyLong_FromLong(C.long(v)))
+}
+
+func asPyList[T any](vs []T, fn func(v T) *C.PyObject) *C.PyObject {
+    list := C.PyList_New(C.long(len(vs)))
+    for i, v := range vs {
+        C.PyList_SetItem(list, C.long(i), fn(v))
+    }
+    return list
 }
 
 func asPyString(v string) *C.PyObject {
@@ -51,7 +59,15 @@ func asPyError(err error) *C.PyObject {
 	C.PyErr_SetString(C.PyExc_RuntimeError, C.CString(err.Error()))
 	return nil
 }
+
 {{range .RequiredCythonDictToGoMap}}{{template "cythondicttogomap" .}}{{end}}
+
 {{range .Functions}}{{template "gopyexport" .}}{{end}}
-{{range .Types}}{{range .Methods}}{{template "gopyexport" .}}{{end}}{{end}}
-{{range .Types}}{{range .Funcs}}{{template "gopyexport" .}}{{end}}{{end}}
+
+{{range .Types}}
+	func {{.GoTypeName}}ToPyObject(v *{{.GoTypeName}}) *C.PyObject {
+		return C.new_{{.GoTypeName}}(C.uintptr_t(cgo.NewHandle(v)))
+	}
+	{{range .Methods}}{{template "gopyexport" .}}{{end}}
+	{{range .Funcs}}{{template "gopyexport" .}}{{end}}
+{{end}}

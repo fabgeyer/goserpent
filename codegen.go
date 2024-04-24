@@ -154,7 +154,7 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 		return fmt.Sprintf("return %s", result)
 	case "bool":
 		return fmt.Sprintf("return asPyBool(%s)", result)
-	case "int", "int8", "int16", "int32":
+	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
 		return fmt.Sprintf("return asPyLong(%s)", result)
 	case "float32", "float64":
 		return fmt.Sprintf("return asPyFloat(%s)", result)
@@ -164,8 +164,22 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 		return fmt.Sprintf("return asPyError(%s)", result)
 	default:
 		if strings.HasPrefix(string(fs.GoReturnType), "*") {
-			return fmt.Sprintf("return C.new_%s(C.uintptr_t(cgo.NewHandle(%s)))", fs.GoReturnType[1:], result)
+			return fmt.Sprintf("return %sToPyObject(%s)", fs.GoReturnType[1:], result)
+
+		} else if strings.HasPrefix(string(fs.GoReturnType), "[]") {
+			switch fs.GoReturnType[2:] {
+			case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
+				return fmt.Sprintf("return asPyList(%s, asPyLong)", result)
+			case "float32", "float64":
+				return fmt.Sprintf("return asPyList(%s, asPyFloat)", result)
+			case "string":
+				return fmt.Sprintf("return asPyList(%s, asPyString)", result)
+			}
+			if strings.HasPrefix(string(fs.GoReturnType[2:]), "*") {
+				return fmt.Sprintf("return asPyList(%s, %sToPyObject)", result, fs.GoReturnType[3:])
+			}
 		}
+
 		log.Fatal().Caller().Msgf("Type '%s' not supported for function %s", fs.GoReturnType, fs.GoFuncName)
 		panic("")
 	}
@@ -425,7 +439,7 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 		return nil
 	}
 
-	var goReturnType string
+	var goReturnType GoType
 	var returnsAlsoError bool
 	if returnsCPythonPtr {
 		goReturnType = "*C.PyObject"
@@ -434,28 +448,14 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 		goReturnType = "" // Equivalent of Python's None
 
 	} else if numReturnFields == 1 || numReturnFields == 2 {
-		switch v := fn.Decl.Type.Results.List[0].Type.(type) {
-		case *ast.Ident:
-			goReturnType = v.Name
-
-		case *ast.StarExpr:
-			// Pointer value
-			ident, ok := v.X.(*ast.Ident)
-			if !ok {
-				log.Fatal().
-					Caller().
-					Str("function", fn.Name).
-					Str("type", fmt.Sprintf("%T", v.X)).
-					Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, v.X))
-			}
-			goReturnType = "*" + ident.Name
-
-		default:
+		var err error
+		goReturnType, err = AsGoType(fn.Decl.Type.Results.List[0].Type, sourceContent)
+		if err != nil {
 			log.Fatal().
 				Caller().
+				Err(err).
 				Str("function", fn.Name).
-				Str("type", fmt.Sprintf("%T", v)).
-				Msgf("Return type '%s' not supported!", GetSourceString(sourceContent, v))
+				Send()
 		}
 
 		if numReturnFields == 2 {
@@ -490,7 +490,7 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 	return &FunctionSignature{
 		GoFuncName:       fn.Name,
 		Args:             args,
-		GoReturnType:     GoType(goReturnType),
+		GoReturnType:     goReturnType,
 		GoDoc:            strings.TrimSpace(fnDoc),
 		GoRecv:           recv,
 		ReturnsAlsoError: returnsAlsoError,
