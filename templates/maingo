@@ -52,6 +52,23 @@ func asPyList[T any](vs []T, fn func(v T) *C.PyObject) *C.PyObject {
     return list
 }
 
+func asGoSlice[T any, U any](obj *C.PyObject, fn func(U) T) []T {
+	return nil
+}
+
+func asGoMap[K comparable, V any](dict *C.PyObject, fnK func(*C.PyObject) K, fnV func(*C.PyObject) V) map[K]V {
+	m := make(map[K]V)
+	var pyKey, pyVal *C.PyObject
+	var pos C.Py_ssize_t
+	for {
+		if C.PyDict_Next(dict, &pos, &pyKey, &pyVal) == 0 {
+			break
+		}
+		m[fnK(pyKey)] = fnV(pyVal)
+	}
+	return m
+}
+
 func asPyString(v string) *C.PyObject {
 	return C.PyIncRef(C.PyUnicode_FromString(C.CString(v)))
 }
@@ -84,8 +101,6 @@ func asPyError(err error) *C.PyObject {
 	C.PyErr_SetString(C.PyExc_RuntimeError, C.CString(err.Error()))
 	return nil
 }
-
-{{range .RequiredCythonDictToGoMap}}{{template "cythondicttogomap" .}}{{end}}
 
 {{range .Functions}}{{template "gopyexport" .}}{{end}}
 

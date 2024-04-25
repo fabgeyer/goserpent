@@ -80,7 +80,7 @@ func (fs *FunctionSignature) init() {
 		fs.ArgsPythonNamesWithTypeHints[i] = fmt.Sprintf("%s: %s", arg.PythonName(), arg.PythonTypeHint())
 		fs.ArgsCPtrSignature[i] = fmt.Sprintf("%s%s", arg.CPtrType(), arg.PythonName())
 		fs.ArgsGoC[i] = fmt.Sprintf("var %s %s", arg.GoName, arg.GoCType())
-		fs.ArgsCToGo[i] = fmt.Sprintf("%s(%s)", arg.CToGoFunction(), arg.GoName)
+		fs.ArgsCToGo[i] = arg.CToGoFunction(arg.GoName)
 		fs.ArgsGoNames[i] = arg.GoName
 		i++
 	}
@@ -165,13 +165,6 @@ func (fs *FunctionSignature) GoPyReturn(result string) string {
 	return fs.GoReturnType.GoPyReturn(result)
 }
 
-type CythonDictToGoMap struct {
-	GoMapKeyType GoType
-	GoMapValType GoType
-}
-
-var requiredCythonDictToGoMap map[CythonDictToGoMap]bool = make(map[CythonDictToGoMap]bool)
-
 type FunctionArgument struct {
 	*GoType
 	GoName string
@@ -182,32 +175,6 @@ func (fa *FunctionArgument) PythonName() string {
 		return ToSnakeCase(fa.GoName)
 	} else {
 		return fa.GoName
-	}
-}
-
-func (fa *FunctionArgument) CToGoFunction() string {
-	switch fa.GoType.T {
-	case CPyObjectPointer:
-		return ""
-	case Bool:
-		return "asGoBool"
-	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64:
-		return fa.GoType.GoRepr
-	case Complex64:
-		return "asGoComplex64"
-	case Complex128:
-		return "asGoComplex128"
-	case String:
-		return "C.GoString"
-	case Map:
-		requiredCythonDictToGoMap[CythonDictToGoMap{
-			GoMapKeyType: *fa.GoType.MapKeyType,
-			GoMapValType: *fa.GoType.MapValType,
-		}] = true
-		return fmt.Sprintf("CythonDictToGoMap_%s_%s", fa.GoType.MapKeyType.GoRepr, fa.GoType.MapValType.GoRepr)
-	default:
-		log.Fatal().Caller().Msgf("Type '%s' not supported", fa.GoType)
-		panic("")
 	}
 }
 
@@ -245,8 +212,7 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 
 	tmpl, err := template.New("gopy").
 		Funcs(template.FuncMap{
-			"join":         strings.Join,
-			"pyObjectToGo": TplCPyObjectToGo,
+			"join": strings.Join,
 		}).
 		ParseFS(templateFiles, "templates/*")
 	if err != nil {
@@ -263,36 +229,27 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		requiresRuntimeCgo = requiresRuntimeCgo || len(ts.Methods) > 0 || len(ts.Funcs) > 0
 	}
 
-	requiredCythonDictToGoMapList := make([]CythonDictToGoMap, len(requiredCythonDictToGoMap))
-	i := 0
-	for k, _ := range requiredCythonDictToGoMap {
-		requiredCythonDictToGoMapList[i] = k
-		i++
-	}
-
 	var imports []string
 	if requiresRuntimeCgo {
 		imports = append(imports, "runtime/cgo")
 	}
 
 	data := struct {
-		GoTags                    string
-		PackageName               string
-		CModuleName               string
-		CHeaderFname              string
-		Functions                 []*FunctionSignature
-		Types                     []*TypeSignature
-		RequiredCythonDictToGoMap []CythonDictToGoMap
-		Imports                   []string
+		GoTags       string
+		PackageName  string
+		CModuleName  string
+		CHeaderFname string
+		Functions    []*FunctionSignature
+		Types        []*TypeSignature
+		Imports      []string
 	}{
-		GoTags:                    strings.Join(goTags, " "),
-		PackageName:               goPackageName,
-		CModuleName:               cModuleName,
-		CHeaderFname:              cHeaderFname,
-		Functions:                 fnSignatures,
-		Types:                     tpSignatures,
-		RequiredCythonDictToGoMap: requiredCythonDictToGoMapList,
-		Imports:                   imports,
+		GoTags:       strings.Join(goTags, " "),
+		PackageName:  goPackageName,
+		CModuleName:  cModuleName,
+		CHeaderFname: cHeaderFname,
+		Functions:    fnSignatures,
+		Types:        tpSignatures,
+		Imports:      imports,
 	}
 
 	withGoFormatting := true

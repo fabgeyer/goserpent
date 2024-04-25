@@ -135,7 +135,11 @@ func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &GoType{T: Slice, SliceElemType: elt}, nil
+		return &GoType{
+			T:             Slice,
+			SliceElemType: elt,
+			GoRepr:        GetSourceString(context, expr),
+		}, nil
 
 	case *ast.MapType:
 		mapKeyType, err := AsGoType(v.Key, context)
@@ -191,7 +195,7 @@ func (g *GoType) PyArgFormat() string {
 		return "D"
 	case String:
 		return "s"
-	case Map, CPyObjectPointer:
+	case Map, Slice, CPyObjectPointer:
 		return "O"
 	}
 	g.Unsupported()
@@ -226,7 +230,7 @@ func (g *GoType) GoCType() string {
 		return "C.Py_complex"
 	case String:
 		return "*C.char"
-	case Map, CPyObjectPointer:
+	case Map, Slice, CPyObjectPointer:
 		return "*C.PyObject"
 	}
 	g.Unsupported()
@@ -253,7 +257,7 @@ func (g *GoType) CPtrType() string {
 		return "Py_complex *"
 	case String:
 		return "char **"
-	case Map, CPyObjectPointer:
+	case Map, Slice, CPyObjectPointer:
 		return "PyObject **"
 	}
 	g.Unsupported()
@@ -287,55 +291,79 @@ func (g *GoType) PythonTypeHint() string {
 	panic("")
 }
 
-func (g *GoType) GoPyReturn(result string) string {
+func (g *GoType) GoPyReturn(varname string) string {
 	switch g.T {
 	case None: // Equivalent of Python's None
 		return "return C.Py_None"
 	case CPyObjectPointer:
-		return fmt.Sprintf("return %s", result)
+		return fmt.Sprintf("return %s", varname)
 	case Bool:
-		return fmt.Sprintf("return asPyBool(%s)", result)
+		return fmt.Sprintf("return asPyBool(%s)", varname)
 	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
-		return fmt.Sprintf("return asPyLong(%s)", result)
+		return fmt.Sprintf("return asPyLong(%s)", varname)
 	case Float32, Float64:
-		return fmt.Sprintf("return asPyFloat(%s)", result)
+		return fmt.Sprintf("return asPyFloat(%s)", varname)
 	case Complex64:
-		return fmt.Sprintf("return goComplex64AsPyComplex(%s)", result)
+		return fmt.Sprintf("return goComplex64AsPyComplex(%s)", varname)
 	case Complex128:
-		return fmt.Sprintf("return goComplex128AsPyComplex(%s)", result)
+		return fmt.Sprintf("return goComplex128AsPyComplex(%s)", varname)
 	case String:
-		return fmt.Sprintf("return asPyString(%s)", result)
+		return fmt.Sprintf("return asPyString(%s)", varname)
 	case Error:
-		return fmt.Sprintf("return asPyError(%s)", result)
+		return fmt.Sprintf("return asPyError(%s)", varname)
 	case Pointer:
-		return fmt.Sprintf("return %sToPyObject(%s)", g.GoRepr, result)
+		return fmt.Sprintf("return %sToPyObject(%s)", g.GoRepr, varname)
 	case Map:
-		keyToPyObjectFn := fmt.Sprintf(
-			"func(v %s) *C.PyObject { %s }",
-			g.MapKeyType.GoRepr,
-			g.MapKeyType.GoPyReturn("v"))
-		valToPyObjectFn := fmt.Sprintf(
-			"func(v %s) *C.PyObject { %s }",
-			g.MapValType.GoRepr,
-			g.MapValType.GoPyReturn("v"))
-		return fmt.Sprintf("return asPyDict(%s, %s, %s)", result, keyToPyObjectFn, valToPyObjectFn)
+		return fmt.Sprintf("return asPyDict(%s, %s, %s)", varname,
+			g.MapKeyType.GoPyReturnLambda(),
+			g.MapValType.GoPyReturnLambda())
 	case Slice:
-		switch g.SliceElemType.T {
-		case Pointer:
-			return fmt.Sprintf("return asPyList(%s, func(v *%s) *C.PyObject { %s })", result, g.SliceElemType.GoRepr, g.SliceElemType.GoPyReturn("v"))
-		default:
-			return fmt.Sprintf("return asPyList(%s, func(v %s) *C.PyObject { %s })", result, g.SliceElemType.GoRepr, g.SliceElemType.GoPyReturn("v"))
-		}
+		return fmt.Sprintf("return asPyList(%s, %s)", varname, g.SliceElemType.GoPyReturnLambda())
 	}
 	g.Unsupported()
 	panic("")
 }
 
-func (g *GoType) IsNotNone() bool {
-	return g.T != None
+func (g *GoType) GoPyReturnLambda() string {
+	switch g.T {
+	case Pointer:
+		return fmt.Sprintf("func(v *%s) *C.PyObject { %s }", g.GoRepr, g.GoPyReturn("v"))
+	default:
+		return fmt.Sprintf("func(v %s) *C.PyObject { %s }", g.GoRepr, g.GoPyReturn("v"))
+	}
 }
 
-func TplCPyObjectToGo(g *GoType, cPyObjectVarName string) string {
+func (g *GoType) CToGoFunction(varname string) string {
+	switch g.T {
+	case CPyObjectPointer:
+		return varname
+	case Bool:
+		return fmt.Sprintf("asGoBool(%s)", varname)
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64:
+		return fmt.Sprintf("%s(%s)", g.GoRepr, varname)
+	case Complex64:
+		return fmt.Sprintf("asGoComplex64(%s)", varname)
+	case Complex128:
+		return fmt.Sprintf("asGoComplex128(%s)", varname)
+	case String:
+		return fmt.Sprintf("C.GoString(%s)", varname)
+	case Slice:
+		return fmt.Sprintf("asGoSlice(%s, %s)", varname,
+			g.SliceElemType.CToGoLambdaFunction())
+	case Map:
+		return fmt.Sprintf("asGoMap(%s, %s, %s)", varname,
+			g.MapKeyType.CPyObjectToGoLambda(),
+			g.MapValType.CPyObjectToGoLambda())
+	}
+	g.Unsupported()
+	panic("")
+}
+
+func (g *GoType) CToGoLambdaFunction() string {
+	return fmt.Sprintf("func(o %s) %s { return %s }", g.GoCType(), g.GoRepr, g.CToGoFunction("o"))
+}
+
+func (g *GoType) CPyObjectToGo(cPyObjectVarName string) string {
 	switch g.T {
 	case String:
 		return fmt.Sprintf("pyObjectAsGoString(%s)", cPyObjectVarName)
@@ -348,4 +376,12 @@ func TplCPyObjectToGo(g *GoType, cPyObjectVarName string) string {
 	}
 	g.Unsupported()
 	panic("")
+}
+
+func (g *GoType) CPyObjectToGoLambda() string {
+	return fmt.Sprintf("func (obj *C.PyObject) %s { return %s }", g.GoRepr, g.CPyObjectToGo("obj"))
+}
+
+func (g *GoType) IsNotNone() bool {
+	return g.T != None
 }
