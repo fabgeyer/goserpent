@@ -81,11 +81,14 @@ func ToKind(v string) Kind {
 		return Float32
 	case "float64":
 		return Float64
+	case "complex64":
+		return Complex64
+	case "complex128":
+		return Complex128
 	case "string":
 		return String
-	default:
-		log.Fatal().Caller().Msgf("Type '%s' not supported!", v)
 	}
+	log.Fatal().Caller().Msgf("Type '%s' not supported!", v)
 	panic("")
 }
 
@@ -143,7 +146,12 @@ func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &GoType{T: Map, MapKeyType: mapKeyType, MapValType: mapValType}, nil
+		return &GoType{
+			T:          Map,
+			MapKeyType: mapKeyType,
+			MapValType: mapValType,
+			GoRepr:     GetSourceString(context, expr),
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("Type '%s' (%T) not supported!", GetSourceString(context, expr), expr)
@@ -151,7 +159,11 @@ func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 }
 
 func (g *GoType) Unsupported() {
-	log.Fatal().Caller(1).Msgf("Type '%s' not supported", g)
+	if g.GoRepr == "" {
+		log.Fatal().Caller(1).Msgf("Type '%+v' not supported", g)
+	} else {
+		log.Fatal().Caller(1).Msgf("Type '%s' not supported", g.GoRepr)
+	}
 }
 
 func (g *GoType) PyArgFormat() string {
@@ -175,6 +187,8 @@ func (g *GoType) PyArgFormat() string {
 		return "f"
 	case Float64:
 		return "d"
+	case Complex64, Complex128:
+		return "D"
 	case String:
 		return "s"
 	case Map, CPyObjectPointer:
@@ -208,6 +222,8 @@ func (g *GoType) GoCType() string {
 		return "C.float"
 	case Float64:
 		return "C.double"
+	case Complex64, Complex128:
+		return "C.Py_complex"
 	case String:
 		return "*C.char"
 	case Map, CPyObjectPointer:
@@ -233,6 +249,8 @@ func (g *GoType) CPtrType() string {
 		return "float *"
 	case Float64:
 		return "double *"
+	case Complex64, Complex128:
+		return "Py_complex *"
 	case String:
 		return "char **"
 	case Map, CPyObjectPointer:
@@ -260,6 +278,8 @@ func (g *GoType) PythonTypeHint() string {
 		return g.GoRepr
 	case Float32, Float64:
 		return "float"
+	case Complex64, Complex128:
+		return "complex"
 	case Slice:
 		return fmt.Sprintf("List[%s]", g.SliceElemType.PythonTypeHint())
 	}
@@ -279,12 +299,26 @@ func (g *GoType) GoPyReturn(result string) string {
 		return fmt.Sprintf("return asPyLong(%s)", result)
 	case Float32, Float64:
 		return fmt.Sprintf("return asPyFloat(%s)", result)
+	case Complex64:
+		return fmt.Sprintf("return goComplex64AsPyComplex(%s)", result)
+	case Complex128:
+		return fmt.Sprintf("return goComplex128AsPyComplex(%s)", result)
 	case String:
 		return fmt.Sprintf("return asPyString(%s)", result)
 	case Error:
 		return fmt.Sprintf("return asPyError(%s)", result)
 	case Pointer:
 		return fmt.Sprintf("return %sToPyObject(%s)", g.GoRepr, result)
+	case Map:
+		keyToPyObjectFn := fmt.Sprintf(
+			"func(v %s) *C.PyObject { %s }",
+			g.MapKeyType.GoRepr,
+			g.MapKeyType.GoPyReturn("v"))
+		valToPyObjectFn := fmt.Sprintf(
+			"func(v %s) *C.PyObject { %s }",
+			g.MapValType.GoRepr,
+			g.MapValType.GoPyReturn("v"))
+		return fmt.Sprintf("return asPyDict(%s, %s, %s)", result, keyToPyObjectFn, valToPyObjectFn)
 	case Slice:
 		switch g.SliceElemType.T {
 		case Pointer:

@@ -19,6 +19,14 @@ func asGoBool(v C.int) bool {
 	return v != 0
 }
 
+func asGoComplex64(v C.Py_complex) complex64 {
+	return complex(float32(v.real), float32(v.imag))
+}
+
+func asGoComplex128(v C.Py_complex) complex128 {
+	return complex(float64(v.real), float64(v.imag))
+}
+
 func pyObjectAsGoString(v *C.PyObject) string {
 	cstr := C.PyObjectToChar(v)
 	return C.GoString(cstr)
@@ -50,6 +58,23 @@ func asPyString(v string) *C.PyObject {
 
 func asPyFloat[T float32 | float64](v T) *C.PyObject {
 	return C.PyIncRef(C.PyFloat_FromDouble(C.double(v)))
+}
+
+func goComplex64AsPyComplex(v complex64) *C.PyObject {
+	return C.PyIncRef(C.PyComplex_FromDoubles(C.double(real(v)), C.double(imag(v))))
+}
+
+func goComplex128AsPyComplex(v complex128) *C.PyObject {
+	return C.PyIncRef(C.PyComplex_FromDoubles(C.double(real(v)), C.double(imag(v))))
+}
+
+func asPyDict[K comparable, V any](m map[K]V, keyToPyObject func(K) *C.PyObject, valToPyObject func(V) *C.PyObject) *C.PyObject {
+	dict := C.PyDict_New()
+	for k, v := range m {
+		if C.PyDict_SetItem(dict, keyToPyObject(k), valToPyObject(v)) != 0 {
+		}
+	}
+	return dict
 }
 
 func asPyError(err error) *C.PyObject {

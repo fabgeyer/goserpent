@@ -51,9 +51,18 @@ func (fs *FunctionSignature) init() {
 
 	nargs := len(fs.Args)
 	if fs.GoRecv == "" {
-		fs.CFunctionName = "pyexport_" + ToSnakeCase(fs.GoFuncName)
+		if args.UseSnakeCase {
+			fs.CFunctionName = "pyexport_" + fs.GoFuncName
+		} else {
+			fs.CFunctionName = "pyexport_" + ToSnakeCase(fs.GoFuncName)
+		}
+
 	} else {
-		fs.CFunctionName = fmt.Sprintf("pyexport_%s_%s", ToSnakeCase(fs.GoRecv[1:]), ToSnakeCase(fs.GoFuncName))
+		if args.UseSnakeCase {
+			fs.CFunctionName = fmt.Sprintf("pyexport_%s_%s", ToSnakeCase(fs.GoRecv[1:]), ToSnakeCase(fs.GoFuncName))
+		} else {
+			fs.CFunctionName = fmt.Sprintf("pyexport_%s_%s", fs.GoRecv[1:], fs.GoFuncName)
+		}
 		fs.CRecv = fs.GoRecv[1:]
 		fs.CGoRecv = "*C." + fs.CRecv
 	}
@@ -97,7 +106,13 @@ func (fs *FunctionSignature) PyArgFormat() string {
 
 func (fs *FunctionSignature) PyModuleDef() string {
 	fs.init()
-	pyFunctionName := ToSnakeCase(fs.GoFuncName)
+	var pyFunctionName string
+	if args.UseSnakeCase {
+		pyFunctionName = ToSnakeCase(fs.GoFuncName)
+	} else {
+		pyFunctionName = fs.GoFuncName
+	}
+
 	doc, err := fs.PyModuleDefDoc(pyFunctionName)
 	if err != nil {
 		log.Fatal().
@@ -163,7 +178,11 @@ type FunctionArgument struct {
 }
 
 func (fa *FunctionArgument) PythonName() string {
-	return ToSnakeCase(fa.GoName)
+	if args.UseSnakeCase {
+		return ToSnakeCase(fa.GoName)
+	} else {
+		return fa.GoName
+	}
 }
 
 func (fa *FunctionArgument) CToGoFunction() string {
@@ -174,6 +193,10 @@ func (fa *FunctionArgument) CToGoFunction() string {
 		return "asGoBool"
 	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, Float32, Float64:
 		return fa.GoType.GoRepr
+	case Complex64:
+		return "asGoComplex64"
+	case Complex128:
+		return "asGoComplex128"
 	case String:
 		return "C.GoString"
 	case Map:
@@ -344,7 +367,7 @@ func ProcessFunc(fn *doc.Func, sourceContent []byte) *FunctionSignature {
 	// Check if the function returns a *C.PyObject
 	returnsCPythonPtr := (numReturnFields == 1) && IsCPyObjectPtr(fn.Decl.Type.Results.List[0].Type)
 
-	if !(isExport || returnsCPythonPtr) {
+	if !args.ExportAll && !(isExport || returnsCPythonPtr) {
 		log.Trace().Msgf("Skip function %s", fn.Name)
 		return nil
 	}

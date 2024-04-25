@@ -28,6 +28,8 @@ type Args struct {
 	OutputGoCode   string   `long:"output-go-code" description:"Output Go code file" default:"pyexports.go" required:"true"`
 	PyModuleName   string   `long:"pymodule" description:"Name of the python module" default:"gomodule" required:"true"`
 	GoTags         []string `long:"tags" description:"Go tags for the generated Go code file"`
+	ExportAll      bool     `long:"export-all" description:"Export all functions from the file"`
+	UseSnakeCase   bool     `long:"use-snake-case" description:"Use snake case for the exported functions"`
 }
 
 func (a *Args) Process() {

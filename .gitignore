@@ -1,3 +1,5 @@
 goserpent
 pyexports.*
 gomodule.*
+*.so
+*.h
