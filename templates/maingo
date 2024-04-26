@@ -89,6 +89,8 @@ func asPyDict[K comparable, V any](m map[K]V, keyToPyObject func(K) *C.PyObject,
 	dict := C.PyDict_New()
 	for k, v := range m {
 		if C.PyDict_SetItem(dict, keyToPyObject(k), valToPyObject(v)) != 0 {
+			C.PyErr_SetString(C.PyExc_RuntimeError, C.CString("Could not process Python dict"))
+			return nil
 		}
 	}
 	return dict

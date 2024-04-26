@@ -13,3 +13,8 @@ func ToSnakeCase(str string) string {
 	snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
 	return strings.ToLower(snake)
 }
+
+func RemoveEmptyLines(src []byte) ([]byte, error) {
+	re := regexp.MustCompile(`(\r?\n|\r){3,}`)
+	return re.ReplaceAll(src, []byte("\n\n")), nil
+}

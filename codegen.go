@@ -189,20 +189,40 @@ func IsErrorType(field *ast.Field) bool {
 	return false
 }
 
-func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, fname string) error {
+func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, fname string, formatter func([]byte) ([]byte, error)) error {
 	var err error
-	f, err := os.Create(fname)
-	if err != nil {
+	if formatter == nil {
+		f, err := os.Create(fname)
+		if err != nil {
+			return err
+		}
+
+		err = tmpl.ExecuteTemplate(f, templateName, data)
+		f.Close()
+		if err != nil {
+			// Cleanup file
+			os.Remove(fname)
+		}
+		return err
+
+	} else {
+		var buf bytes.Buffer
+		err = tmpl.ExecuteTemplate(&buf, templateName, data)
+		if err != nil {
+			log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
+		}
+
+		text, err := formatter(buf.Bytes())
+		if err != nil {
+			log.Fatal().Caller().Err(err).Msg("Failed to format Go code")
+		}
+
+		err = os.WriteFile(fname, text, 0644)
+		if err != nil {
+			log.Fatal().Caller().Err(err).Msg("Failed to write file")
+		}
 		return err
 	}
-
-	err = tmpl.ExecuteTemplate(f, templateName, data)
-	f.Close()
-	if err != nil {
-		// Cleanup file
-		os.Remove(fname)
-	}
-	return err
 }
 
 func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName string, goTags []string, fnSignatures []*FunctionSignature, tpSignatures []*TypeSignature, cModuleName string) error {
@@ -252,46 +272,38 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		Imports:      imports,
 	}
 
+	cleanupFiles := func() {
+		for _, fname := range []string{goCodeFname, cCodeFname, cHeaderFname} {
+			os.Remove(fname)
+		}
+	}
+
 	withGoFormatting := true
 	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
 	if withGoFormatting {
-		var gosrcbuf bytes.Buffer
-		err = tmpl.ExecuteTemplate(&gosrcbuf, "maingo", data)
-		if err != nil {
-			log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
-		}
-		gosrc, err := format.Source(gosrcbuf.Bytes())
-		if err != nil {
-			println(string(gosrcbuf.Bytes()))
-			log.Fatal().Caller().Err(err).Msg("Failed to format Go code")
-		}
-		err = os.WriteFile(goCodeFname, gosrc, 0644)
-		if err != nil {
-			log.Fatal().Caller().Err(err).Msg("Failed to write file")
-		}
+		err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname, format.Source)
 	} else {
-		err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname)
-		if err != nil {
-			log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
-			os.Remove(goCodeFname)
-		}
+		err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname, RemoveEmptyLines)
+	}
+	if err != nil {
+		cleanupFiles()
+		log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
+		return err
 	}
 
 	log.Trace().Str("filename", cCodeFname).Msg("Export C code")
-	err = SafeWriteTemplate(tmpl, "mainc", data, cCodeFname)
+	err = SafeWriteTemplate(tmpl, "mainc", data, cCodeFname, RemoveEmptyLines)
 	if err != nil {
+		cleanupFiles()
 		log.Fatal().Caller().Err(err).Msg("Failed to generate C code")
-		// Cleanup generated Go code
-		os.Remove(goCodeFname)
+		return err
 	}
 
 	log.Trace().Str("filename", cHeaderFname).Msg("Export C header")
-	err = SafeWriteTemplate(tmpl, "mainchdr", data, cHeaderFname)
+	err = SafeWriteTemplate(tmpl, "mainchdr", data, cHeaderFname, RemoveEmptyLines)
 	if err != nil {
+		cleanupFiles()
 		log.Fatal().Caller().Err(err).Msg("Failed to generate C header")
-		// Cleanup generated Go code
-		os.Remove(goCodeFname)
-		os.Remove(cCodeFname)
 		return err
 	}
 	return nil
