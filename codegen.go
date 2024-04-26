@@ -209,19 +209,15 @@ func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, f
 		var buf bytes.Buffer
 		err = tmpl.ExecuteTemplate(&buf, templateName, data)
 		if err != nil {
-			log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
+			return err
 		}
 
 		text, err := formatter(buf.Bytes())
 		if err != nil {
-			log.Fatal().Caller().Err(err).Msg("Failed to format Go code")
+			return err
 		}
 
-		err = os.WriteFile(fname, text, 0644)
-		if err != nil {
-			log.Fatal().Caller().Err(err).Msg("Failed to write file")
-		}
-		return err
+		return os.WriteFile(fname, text, 0644)
 	}
 }
 
