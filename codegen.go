@@ -41,6 +41,7 @@ type FunctionSignature struct {
 	ArgsGoC                      []string
 	ArgsCToGo                    []string
 	ArgsGoNames                  []string
+	ArgsCPyObject                []string
 }
 
 func (fs *FunctionSignature) init() {
@@ -82,6 +83,10 @@ func (fs *FunctionSignature) init() {
 		fs.ArgsGoC[i] = fmt.Sprintf("var %s %s", arg.GoName, arg.GoCType())
 		fs.ArgsCToGo[i] = arg.CToGoFunction(arg.GoName)
 		fs.ArgsGoNames[i] = arg.GoName
+		switch arg.T {
+		case CPyObjectPointer, Map, Slice:
+			fs.ArgsCPyObject = append(fs.ArgsCPyObject, arg.GoName)
+		}
 		i++
 	}
 

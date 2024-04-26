@@ -4,7 +4,16 @@
 #include "{{.CHeaderFname}}"
 
 PyObject* PyIncRef(PyObject *o) {
-	Py_INCREF(o);
+	if (o != NULL) {
+		Py_INCREF(o);
+	}
+	return o;
+}
+
+PyObject* PyDecRef(PyObject *o) {
+	if (o != NULL) {
+		Py_DECREF(o);
+	}
 	return o;
 }
 

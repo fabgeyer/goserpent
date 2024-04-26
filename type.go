@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+//go:generate stringer -type=Kind
 type Kind uint
 
 const (

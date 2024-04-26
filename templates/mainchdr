@@ -9,6 +9,7 @@
 #include <Python.h>
 
 PyObject* PyIncRef(PyObject *o);
+PyObject* PyDecRef(PyObject *o);
 char *PyObjectToChar(PyObject *obj);
 
 {{range .Types}}// {{.GoTypeName}}

@@ -108,7 +108,7 @@ func asPyError(err error) *C.PyObject {
 
 {{range .Types}}
 	func {{.GoTypeName}}ToPyObject(v *{{.GoTypeName}}) *C.PyObject {
-		return C.new_{{.GoTypeName}}(C.uintptr_t(cgo.NewHandle(v)))
+		return C.PyIncRef(C.new_{{.GoTypeName}}(C.uintptr_t(cgo.NewHandle(v))))
 	}
 	{{range .Methods}}{{template "gopyexport" .}}{{end}}
 	{{range .Funcs}}{{template "gopyexport" .}}{{end}}
