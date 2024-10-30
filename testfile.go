@@ -69,6 +69,11 @@ func FunctionMapArgument(arg map[string]int) {
 	fmt.Printf("FunctionMapArgument(%v)\n", arg)
 }
 
+// go:pyexport
+func FunctionReturnBytes() []byte {
+	return []byte("Hello world!")
+}
+
 type ExportedType struct {
 	Value int
 }

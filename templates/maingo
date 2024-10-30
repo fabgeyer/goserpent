@@ -104,6 +104,14 @@ func asPyError(err error) *C.PyObject {
 	return nil
 }
 
+func asPyBytes(v []byte) *C.PyObject {
+	if v == nil {
+		C.PyErr_SetString(C.PyExc_RuntimeError, C.CString("Received NULL pointer"))
+		return nil
+	}
+	return C.PyBytes_FromStringAndSize((*C.char)(unsafe.Pointer(&v[0])), C.long(len(v)))
+}
+
 {{range .Functions}}{{template "gopyexport" .}}{{end}}
 
 {{range .Types}}

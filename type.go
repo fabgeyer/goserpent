@@ -41,6 +41,8 @@ const (
 	None
 	Error
 	CPyObjectPointer
+	Byte
+	ByteArray
 )
 
 type GoType struct {
@@ -88,6 +90,8 @@ func ToKind(v string) Kind {
 		return Complex128
 	case "string":
 		return String
+	case "byte":
+		return Byte
 	}
 	log.Fatal().Caller().Msgf("Type '%s' not supported!", v)
 	panic("")
@@ -136,11 +140,22 @@ func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &GoType{
-			T:             Slice,
-			SliceElemType: elt,
-			GoRepr:        GetSourceString(context, expr),
-		}, nil
+
+		switch elt.T {
+		case Byte:
+			// Note: Handle byte slices as its own type as Python has its own PyBytes
+			return &GoType{
+				T:      ByteArray,
+				GoRepr: GetSourceString(context, expr),
+			}, nil
+
+		default:
+			return &GoType{
+				T:             Slice,
+				SliceElemType: elt,
+				GoRepr:        GetSourceString(context, expr),
+			}, nil
+		}
 
 	case *ast.MapType:
 		mapKeyType, err := AsGoType(v.Key, context)
@@ -287,8 +302,11 @@ func (g *GoType) PythonTypeHint() string {
 		return "complex"
 	case Slice:
 		return fmt.Sprintf("List[%s]", g.SliceElemType.PythonTypeHint())
+	case ByteArray:
+		return "bytes"
+	default:
+		g.Unsupported()
 	}
-	g.Unsupported()
 	panic("")
 }
 
@@ -320,8 +338,11 @@ func (g *GoType) GoPyReturn(varname string) string {
 			g.MapValType.GoPyReturnLambda())
 	case Slice:
 		return fmt.Sprintf("return asPyList(%s, %s)", varname, g.SliceElemType.GoPyReturnLambda())
+	case ByteArray:
+		return fmt.Sprintf("return asPyBytes(%s)", varname)
+	default:
+		g.Unsupported()
 	}
-	g.Unsupported()
 	panic("")
 }
 

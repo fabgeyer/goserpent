@@ -250,7 +250,7 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		requiresRuntimeCgo = requiresRuntimeCgo || len(ts.Methods) > 0 || len(ts.Funcs) > 0
 	}
 
-	var imports []string
+	imports := []string{"unsafe"}
 	if requiresRuntimeCgo {
 		imports = append(imports, "runtime/cgo")
 	}
