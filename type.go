@@ -371,7 +371,7 @@ func (g *GoType) CToGoFunction(varname string) string {
 		return fmt.Sprintf("C.GoString(%s)", varname)
 	case Slice:
 		return fmt.Sprintf("asGoSlice(%s, %s)", varname,
-			g.SliceElemType.CToGoLambdaFunction())
+			g.SliceElemType.CPyObjectToGoLambda())
 	case Map:
 		return fmt.Sprintf("asGoMap(%s, %s, %s)", varname,
 			g.MapKeyType.CPyObjectToGoLambda(),
@@ -390,18 +390,26 @@ func (g *GoType) CPyObjectToGo(cPyObjectVarName string) string {
 	case String:
 		return fmt.Sprintf("pyObjectAsGoString(%s)", cPyObjectVarName)
 	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
-		// https://docs.python.org/3/c-api/long.html
-		return fmt.Sprintf("%s(C.PyLong_AsLong(%s))", g.GoRepr, cPyObjectVarName)
+		return fmt.Sprintf("asGoInt[%s](%s)", g.GoRepr, cPyObjectVarName)
 	case Float32, Float64:
-		// https://docs.python.org/3/c-api/float.html
-		return fmt.Sprintf("%s(C.PyFloat_AsDouble(%s))", g.GoRepr, cPyObjectVarName)
+		return fmt.Sprintf("asGoFloat[%s](%s)", g.GoRepr, cPyObjectVarName)
 	}
 	g.Unsupported()
 	panic("")
 }
 
 func (g *GoType) CPyObjectToGoLambda() string {
-	return fmt.Sprintf("func (obj *C.PyObject) %s { return %s }", g.GoRepr, g.CPyObjectToGo("obj"))
+	switch g.T {
+	case String:
+		return "pyObjectAsGoString"
+	case Float32, Float64:
+		return fmt.Sprintf("asGoFloat[%s]", g.GoRepr)
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
+		return fmt.Sprintf("asGoInt[%s]", g.GoRepr)
+	default:
+		g.Unsupported()
+	}
+	panic("")
 }
 
 func (g *GoType) IsNotNone() bool {

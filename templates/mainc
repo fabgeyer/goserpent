@@ -29,6 +29,22 @@ char *PyObjectToChar(PyObject *obj) {
     return result;
 }
 
+int PyLongCheck(PyObject *obj) {
+	return PyLong_Check(obj);
+}
+
+int PyFloatCheck(PyObject *obj) {
+	return PyFloat_Check(obj);
+}
+
+int PyListCheck(PyObject *obj) {
+	return PyList_Check(obj);
+}
+
+int PyTupleCheck(PyObject *obj) {
+	return PyTuple_Check(obj);
+}
+
 {{range .Types}}
 PyObject *new_{{.GoTypeName}}(uintptr_t handle) {
 	PyGILState_STATE gstate = PyGILState_Ensure();

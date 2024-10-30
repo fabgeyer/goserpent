@@ -19,6 +19,20 @@ func asGoBool(v C.int) bool {
 	return v != 0
 }
 
+func asGoFloat[T ~float32 | ~float64](v *C.PyObject) T {
+	if C.PyFloatCheck(v) != 1 {
+		panic("Object is not PyFloat")
+	}
+	return T(C.PyFloat_AsDouble(v))
+}
+
+func asGoInt[T ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr](v *C.PyObject) T {
+	if C.PyLongCheck(v) != 1 {
+		panic("Object is not PyLong")
+	}
+	return T(C.PyLong_AsLong(v))
+}
+
 func asGoComplex64(v C.Py_complex) complex64 {
 	return complex(float32(v.real), float32(v.imag))
 }
@@ -52,8 +66,23 @@ func asPyList[T any](vs []T, fn func(v T) *C.PyObject) *C.PyObject {
     return list
 }
 
-func asGoSlice[T any, U any](obj *C.PyObject, fn func(U) T) []T {
-	return nil
+func asGoSlice[T any](obj *C.PyObject, fn func(*C.PyObject) T) []T {
+	if C.PyListCheck(obj) == 1 {
+		res := make([]T, C.PyList_Size(obj))
+		for i := range res {
+			res[i] = fn(C.PyList_GetItem(obj, C.long(i)))
+		}
+		return res
+
+	} else if C.PyTupleCheck(obj) == 1 {
+		res := make([]T, C.PyTuple_Size(obj))
+		for i := range res {
+			res[i] = fn(C.PyTuple_GetItem(obj, C.long(i)))
+		}
+		return res
+
+	}
+	panic("Invalid python object type")
 }
 
 func asGoMap[K comparable, V any](dict *C.PyObject, fnK func(*C.PyObject) K, fnV func(*C.PyObject) V) map[K]V {

@@ -11,6 +11,10 @@
 PyObject* PyIncRef(PyObject *o);
 PyObject* PyDecRef(PyObject *o);
 char *PyObjectToChar(PyObject *obj);
+int PyLongCheck(PyObject *obj);
+int PyFloatCheck(PyObject *obj);
+int PyListCheck(PyObject *obj);
+int PyTupleCheck(PyObject *obj);
 
 {{range .Types}}// {{.GoTypeName}}
 typedef struct {

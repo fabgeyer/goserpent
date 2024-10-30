@@ -70,6 +70,14 @@ func FunctionMapArgument(arg map[string]int) {
 }
 
 // go:pyexport
+func FunctionListArgument(values []int) int {
+	for _, v := range values {
+		fmt.Println(v)
+	}
+	return len(values)
+}
+
+// go:pyexport
 func FunctionReturnBytes() []byte {
 	return []byte("Hello world!")
 }
