@@ -43,7 +43,7 @@ $ go build -buildmode=c-shared -o gomodule.so
 The Go functions can be called from Python using it's snakecase name:
 ```python
 from gomodule import example_function
-example_function()
+print(example_function(42))
 ```
 
 `goserpent` also supports functions returning an error.

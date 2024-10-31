@@ -348,8 +348,18 @@ func (g *GoType) GoPyReturn(varname string) string {
 
 func (g *GoType) GoPyReturnLambda() string {
 	switch g.T {
+	case CPyObjectPointer:
+		return "identity"
 	case Pointer:
 		return fmt.Sprintf("func(v *%s) *C.PyObject { %s }", g.GoRepr, g.GoPyReturn("v"))
+	case Bool:
+		return "asPyBool"
+	case Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64:
+		return "asPyLong"
+	case Float32, Float64:
+		return "asPyFloat"
+	case String:
+		return "asPyString"
 	default:
 		return fmt.Sprintf("func(v %s) *C.PyObject { %s }", g.GoRepr, g.GoPyReturn("v"))
 	}

@@ -15,6 +15,7 @@ int PyLongCheck(PyObject *obj);
 int PyFloatCheck(PyObject *obj);
 int PyListCheck(PyObject *obj);
 int PyTupleCheck(PyObject *obj);
+int PyUnicodeCheck(PyObject *obj);
 
 {{range .Types}}// {{.GoTypeName}}
 typedef struct {
