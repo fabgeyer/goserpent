@@ -25,4 +25,9 @@ func TestCodegenCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compilation error: %v. Output: %s", err, cmdout)
 	}
+
+	cmdout, err = exec.Command("python3", "testfile.py").CombinedOutput()
+	if err != nil {
+		t.Fatalf("Compilation error: %v. Output: %s", err, cmdout)
+	}
 }

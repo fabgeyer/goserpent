@@ -195,6 +195,8 @@ func (g *GoType) PyArgFormat() string {
 		return "p"
 	case Int:
 		return "i"
+	case Uint:
+		return "I"
 	case Int32:
 		return "l"
 	case Uint32:
@@ -222,6 +224,8 @@ func (g *GoType) GoCType() string {
 	switch g.T {
 	case Int, Bool:
 		return "C.int"
+	case Uint:
+		return "C.uint"
 	case Int8:
 		return "C.int8_t"
 	case Uint8:
@@ -261,6 +265,8 @@ func (g *GoType) CPtrType() string {
 		return "int32_t *"
 	case Int64:
 		return "int64_t *"
+	case Uint:
+		return "unsigned int *"
 	case Uint32:
 		return "uint32_t *"
 	case Uint64:

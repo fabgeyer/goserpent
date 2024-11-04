@@ -49,6 +49,12 @@ func FunctionReturnInt(arg int) int {
 }
 
 // go:pyexport
+func FunctionReturnUint(arg uint) uint {
+	fmt.Printf("FunctionReturnUint(%d)\n", arg)
+	return arg * 2
+}
+
+// go:pyexport
 func FunctionReturnIntList(arg int) []int {
 	return []int{arg, arg + 1}
 }
@@ -65,8 +71,10 @@ func FunctionReturnError(arg int) error {
 }
 
 // go:pyexport
-func FunctionMapArgument(arg map[string]int) {
+func FunctionMapArgument(arg map[string]int, key string) bool {
 	fmt.Printf("FunctionMapArgument(%v)\n", arg)
+	_, ok := arg[key]
+	return ok
 }
 
 // go:pyexport
