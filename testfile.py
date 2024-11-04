@@ -37,7 +37,8 @@ else:
 assert tm.FunctionMapArgument({"a": 1, "b": 2}, "a") == True
 assert tm.FunctionMapArgument({"a": 1, "b": 2}, "c") == False
 
-assert tm.FunctionListArgument(list(range(5))) == 5
+assert tm.FunctionListArgument(range(5)) == 10
+assert tm.FunctionListArgument(list(range(10))) == 45
 
 assert tm.FunctionReturnBytes().decode("utf8") == "Hello world!"
 

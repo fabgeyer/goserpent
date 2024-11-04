@@ -71,6 +71,7 @@ func asPyList[T any](vs []T, fn func(v T) *C.PyObject) *C.PyObject {
 
 func asGoSlice[T any](obj *C.PyObject, fn func(*C.PyObject) T) []T {
 	if C.PyListCheck(obj) == 1 {
+		// https://docs.python.org/3/c-api/list.html
 		res := make([]T, C.PyList_Size(obj))
 		for i := range res {
 			res[i] = fn(C.PyList_GetItem(obj, C.long(i)))
@@ -78,9 +79,18 @@ func asGoSlice[T any](obj *C.PyObject, fn func(*C.PyObject) T) []T {
 		return res
 
 	} else if C.PyTupleCheck(obj) == 1 {
+		// https://docs.python.org/3/c-api/tuple.html
 		res := make([]T, C.PyTuple_Size(obj))
 		for i := range res {
 			res[i] = fn(C.PyTuple_GetItem(obj, C.long(i)))
+		}
+		return res
+
+	} else if C.PySequenceCheck(obj) == 1 {
+		// https://docs.python.org/3/c-api/tuple.html
+		res := make([]T, C.PySequence_Size(obj))
+		for i := range res {
+			res[i] = fn(C.PySequence_GetItem(obj, C.long(i)))
 		}
 		return res
 

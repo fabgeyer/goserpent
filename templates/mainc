@@ -49,6 +49,10 @@ int PyUnicodeCheck(PyObject *obj) {
     return PyUnicode_Check(obj);
 }
 
+int PySequenceCheck(PyObject *obj) {
+	return PySequence_Check(obj);
+}
+
 {{range .Types}}
 PyObject *new_{{.GoTypeName}}(uintptr_t handle) {
 	PyGILState_STATE gstate = PyGILState_Ensure();

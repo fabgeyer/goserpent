@@ -79,10 +79,12 @@ func FunctionMapArgument(arg map[string]int, key string) bool {
 
 // go:pyexport
 func FunctionListArgument(values []int) int {
+	var sum int
 	for _, v := range values {
 		fmt.Println(v)
+		sum += v
 	}
-	return len(values)
+	return sum
 }
 
 // go:pyexport
