@@ -12,7 +12,7 @@ func TestCodegenCmd(t *testing.T) {
 		OutputCCode:    "pyexports.c",
 		OutputChdrCode: "pyexports.h",
 		OutputGoCode:   "pyexports.go",
-		PyModuleName:   "gomodule",
+		PyModuleName:   "testmodule",
 		GoTags:         []string{"python"},
 	}
 
