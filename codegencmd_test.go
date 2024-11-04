@@ -18,7 +18,7 @@ func TestCodegenCmd(t *testing.T) {
 
 	DoPyExports(args, []string{"testfile.go"})
 
-	cmd := exec.Command("go", "build", "-buildmode=c-shared", "--pymodule=testmodule",
+	cmd := exec.Command("go", "build", "-buildmode=c-shared",
 		fmt.Sprintf("--tags=%s", args.GoTags[0]), "-o", "testmodule.so")
 	t.Log("Building with:", cmd)
 	cmdout, err := cmd.CombinedOutput()
