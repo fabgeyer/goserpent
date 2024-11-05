@@ -4,7 +4,7 @@
 package {{.PackageName}}
 
 /*
-#cgo pkg-config: python3 python3-embed
+#cgo pkg-config: python3 python3-embed{{if .WithNumpy}} numpy{{end}}
 #include <Python.h>
 #include "{{.CHeaderFname}}"
 */
@@ -110,6 +110,15 @@ func asGoMap[K comparable, V any](dict *C.PyObject, fnK func(*C.PyObject) K, fnV
 	}
 	return m
 }
+
+{{if .WithNumpy}}
+func asGoNumpyArray(obj *C.PyObject) *numpy.Array {
+	if C.PyArrayCheck(obj) != 1 {
+		panic("Object is not PyArray")
+	}
+	return numpy.AsArray(unsafe.Pointer(obj))
+}
+{{end}}
 
 func asPyString(v string) *C.PyObject {
 	return C.PyIncRef(C.PyUnicode_FromString(C.CString(v)))

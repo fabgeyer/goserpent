@@ -53,6 +53,12 @@ int PySequenceCheck(PyObject *obj) {
 	return PySequence_Check(obj);
 }
 
+{{if .WithNumpy}}
+int PyArrayCheck(PyObject *obj) {
+	return PyArray_Check(obj);
+}
+{{end}}
+
 {{range .Types}}
 PyObject *new_{{.GoTypeName}}(uintptr_t handle) {
 	PyGILState_STATE gstate = PyGILState_Ensure();
@@ -100,6 +106,8 @@ PyMODINIT_FUNC PyInit_{{.CModuleName}}(void) {
         Py_DECREF(m);
         return NULL;
     }
+{{end}}{{if .WithNumpy}}
+	import_array();
 {{end}}
 	return m;
 }

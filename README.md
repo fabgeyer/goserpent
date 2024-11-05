@@ -8,7 +8,7 @@ This project can be seen as a simplified version of [`gopy`](https://github.com/
 Use `goserpent` if you need to export Go functions directly interacting with `PyObject` structures.
 Otherwise `gopy` is a better choice.
 
-This project has been successfully tested with Go 1.21 and Python 3.10.
+This project has been successfully tested with Go 1.23 and Python 3.12.
 
 The `textfile.go` shows a few example of exported Go functions.
 

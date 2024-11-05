@@ -43,6 +43,7 @@ const (
 	CPyObjectPointer
 	Byte
 	ByteArray
+	NumpyArray
 )
 
 type GoType struct {
@@ -116,6 +117,25 @@ func IsCPyObjectPtr(expr ast.Expr) bool {
 	return false
 }
 
+func IsPkgStruct(expr ast.Expr, pkg, structname string) bool {
+	sta, ok := expr.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := sta.X.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	ide, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if ide.Name == pkg && sel.Sel.Name == structname {
+		return true
+	}
+	return false
+}
+
 func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 	switch v := expr.(type) {
 	case *ast.Ident:
@@ -127,6 +147,12 @@ func AsGoType(expr ast.Expr, context []byte) (*GoType, error) {
 	case *ast.StarExpr:
 		if IsCPyObjectPtr(v) {
 			return &GoType{T: CPyObjectPointer}, nil
+
+		} else if IsPkgStruct(v, "numpy", "Array") {
+			return &GoType{
+				T:      NumpyArray,
+				GoRepr: GetSourceString(context, expr),
+			}, nil
 
 		} else {
 			return &GoType{
@@ -213,7 +239,7 @@ func (g *GoType) PyArgFormat() string {
 		return "D"
 	case String:
 		return "s"
-	case Map, Slice, CPyObjectPointer:
+	case Map, Slice, CPyObjectPointer, NumpyArray:
 		return "O"
 	}
 	g.Unsupported()
@@ -250,7 +276,7 @@ func (g *GoType) GoCType() string {
 		return "C.Py_complex"
 	case String:
 		return "*C.char"
-	case Map, Slice, CPyObjectPointer:
+	case Map, Slice, CPyObjectPointer, NumpyArray:
 		return "*C.PyObject"
 	}
 	g.Unsupported()
@@ -279,7 +305,7 @@ func (g *GoType) CPtrType() string {
 		return "Py_complex *"
 	case String:
 		return "char **"
-	case Map, Slice, CPyObjectPointer:
+	case Map, Slice, CPyObjectPointer, NumpyArray:
 		return "PyObject **"
 	}
 	g.Unsupported()
@@ -310,6 +336,8 @@ func (g *GoType) PythonTypeHint() string {
 		return fmt.Sprintf("List[%s]", g.SliceElemType.PythonTypeHint())
 	case ByteArray:
 		return "bytes"
+	case NumpyArray:
+		return "np.ndarray"
 	default:
 		g.Unsupported()
 	}
@@ -392,6 +420,8 @@ func (g *GoType) CToGoFunction(varname string) string {
 		return fmt.Sprintf("asGoMap(%s, %s, %s)", varname,
 			g.MapKeyType.CPyObjectToGoLambda(),
 			g.MapValType.CPyObjectToGoLambda())
+	case NumpyArray:
+		return fmt.Sprintf("asGoNumpyArray(%s)", varname)
 	}
 	g.Unsupported()
 	panic("")

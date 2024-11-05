@@ -250,9 +250,23 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		requiresRuntimeCgo = requiresRuntimeCgo || len(ts.Methods) > 0 || len(ts.Funcs) > 0
 	}
 
+	withNumpy := false
+L:
+	for _, fs := range fnSignatures {
+		for _, arg := range fs.Args {
+			if arg.GoType.T == NumpyArray {
+				withNumpy = true
+				break L
+			}
+		}
+	}
+
 	imports := []string{"unsafe"}
 	if requiresRuntimeCgo {
 		imports = append(imports, "runtime/cgo")
+	}
+	if withNumpy {
+		imports = append(imports, "github.com/fabgeyer/goserpent/numpy")
 	}
 
 	data := struct {
@@ -263,6 +277,7 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		Functions    []*FunctionSignature
 		Types        []*TypeSignature
 		Imports      []string
+		WithNumpy    bool
 	}{
 		GoTags:       strings.Join(goTags, " "),
 		PackageName:  goPackageName,
@@ -271,6 +286,7 @@ func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName 
 		Functions:    fnSignatures,
 		Types:        tpSignatures,
 		Imports:      imports,
+		WithNumpy:    withNumpy,
 	}
 
 	cleanupFiles := func() {

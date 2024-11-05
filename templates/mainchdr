@@ -6,7 +6,9 @@
 #define PYEXPORTS_H
 
 #include <stdint.h>
-#include <Python.h>
+#include <Python.h>{{if .WithNumpy}}
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#include <numpy/ndarrayobject.h>{{end}}
 
 PyObject* PyIncRef(PyObject *o);
 PyObject* PyDecRef(PyObject *o);
@@ -17,6 +19,9 @@ int PyListCheck(PyObject *obj);
 int PyTupleCheck(PyObject *obj);
 int PyUnicodeCheck(PyObject *obj);
 int PySequenceCheck(PyObject *obj);
+{{if .WithNumpy}}
+int PyArrayCheck(PyObject *obj);
+{{end}}
 
 {{range .Types}}// {{.GoTypeName}}
 typedef struct {

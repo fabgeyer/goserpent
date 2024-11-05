@@ -1,6 +1,6 @@
 module github.com/fabgeyer/goserpent
 
-go 1.21.3
+go 1.23
 
 require (
 	github.com/jessevdk/go-flags v1.5.0
