@@ -226,18 +226,29 @@ func SafeWriteTemplate(tmpl *template.Template, templateName string, data any, f
 	}
 }
 
-func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName string, goTags []string, fnSignatures []*FunctionSignature, tpSignatures []*TypeSignature, cModuleName string) error {
+type PyExportContext struct {
+	GoTags       string
+	PackageName  string
+	CModuleName  string
+	CHeaderFname string
+	Functions    []*FunctionSignature
+	Types        []*TypeSignature
+	Imports      []string
+	WithNumpy    bool
+}
+
+func GeneratePyExportsCode(cCodeFname, cHeaderFname, goCodeFname, goPackageName string, goTags []string, fnSignatures []*FunctionSignature, tpSignatures []*TypeSignature, cModuleName string) (*PyExportContext, error) {
 	if len(fnSignatures) == 0 {
-		return errors.New("No function signature exported")
+		return nil, errors.New("No function signature exported")
 	}
 
-	tmpl, err := template.New("gopy").
+	tmpl, err := template.New("goserpent").
 		Funcs(template.FuncMap{
 			"join": strings.Join,
 		}).
 		ParseFS(templateFiles, "templates/*")
 	if err != nil {
-		log.Fatal().Caller().Err(err).Msg("")
+		log.Fatal().Caller().Err(err).Msg("Failed to parse templates")
 	}
 
 	for _, fs := range fnSignatures {
@@ -269,16 +280,7 @@ L:
 		imports = append(imports, "github.com/fabgeyer/goserpent/numpy")
 	}
 
-	data := struct {
-		GoTags       string
-		PackageName  string
-		CModuleName  string
-		CHeaderFname string
-		Functions    []*FunctionSignature
-		Types        []*TypeSignature
-		Imports      []string
-		WithNumpy    bool
-	}{
+	ctx := &PyExportContext{
 		GoTags:       strings.Join(goTags, " "),
 		PackageName:  goPackageName,
 		CModuleName:  cModuleName,
@@ -298,32 +300,32 @@ L:
 	withGoFormatting := true
 	log.Trace().Str("filename", goCodeFname).Msg("Export Go code")
 	if withGoFormatting {
-		err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname, format.Source)
+		err = SafeWriteTemplate(tmpl, "maingo", ctx, goCodeFname, format.Source)
 	} else {
-		err = SafeWriteTemplate(tmpl, "maingo", data, goCodeFname, RemoveEmptyLines)
+		err = SafeWriteTemplate(tmpl, "maingo", ctx, goCodeFname, RemoveEmptyLines)
 	}
 	if err != nil {
 		cleanupFiles()
 		log.Fatal().Caller().Err(err).Msg("Failed to generate Go code")
-		return err
+		return nil, err
 	}
 
 	log.Trace().Str("filename", cCodeFname).Msg("Export C code")
-	err = SafeWriteTemplate(tmpl, "mainc", data, cCodeFname, RemoveEmptyLines)
+	err = SafeWriteTemplate(tmpl, "mainc", ctx, cCodeFname, RemoveEmptyLines)
 	if err != nil {
 		cleanupFiles()
 		log.Fatal().Caller().Err(err).Msg("Failed to generate C code")
-		return err
+		return nil, err
 	}
 
 	log.Trace().Str("filename", cHeaderFname).Msg("Export C header")
-	err = SafeWriteTemplate(tmpl, "mainchdr", data, cHeaderFname, RemoveEmptyLines)
+	err = SafeWriteTemplate(tmpl, "mainchdr", ctx, cHeaderFname, RemoveEmptyLines)
 	if err != nil {
 		cleanupFiles()
 		log.Fatal().Caller().Err(err).Msg("Failed to generate C header")
-		return err
+		return nil, err
 	}
-	return nil
+	return ctx, nil
 }
 
 func ProcessDoc(doc string) (string, bool) {
@@ -496,7 +498,7 @@ func GetSourceString(content []byte, node ast.Node) string {
 	return string(content[node.Pos()-1 : node.End()-1])
 }
 
-func DoPyExports(args Args, fnames []string) error {
+func DoPyExports(args Args, fnames []string) (*PyExportContext, error) {
 	var fnPackage string
 	var fnSignatures []*FunctionSignature
 	var tpSignatures []*TypeSignature

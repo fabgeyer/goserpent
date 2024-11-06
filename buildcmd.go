@@ -19,7 +19,7 @@ var buildCommand BuildCommand
 
 func (x *BuildCommand) Execute(rargs []string) error {
 	args.Process()
-	err := DoPyExports(args, rargs)
+	ctx, err := DoPyExports(args, rargs)
 	if err != nil {
 		return err
 	}
@@ -39,16 +39,35 @@ func (x *BuildCommand) Execute(rargs []string) error {
 	}
 	goargs = append(goargs, "-o", soFilename)
 
-	cmd := exec.Command("go", goargs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	gocmd := exec.Command("go", goargs...)
+	gocmd.Stdout = os.Stdout
+	gocmd.Stderr = os.Stderr
 
-	log.Debug().Msgf("%v", cmd)
-	err = cmd.Run()
+	if ctx.WithNumpy {
+		// Get the import path for numpy
+		cmd := exec.Command("python3", "-c", "import numpy; print(numpy.get_include())")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Error().Msg("Failed to find numpy's import path")
+
+		} else {
+			numpypath := strings.TrimSpace(string(out))
+			if _, err := os.Stat(numpypath); err == nil {
+				log.Trace().Msgf("Using numpy include path: %v", numpypath)
+				gocmd.Env = append(os.Environ(), fmt.Sprintf("CGO_CFLAGS=-I%s", numpypath))
+
+			} else {
+				log.Error().Err(err).Msgf("Invalid path: %s", numpypath)
+			}
+		}
+	}
+
+	log.Debug().Msgf("%v", gocmd)
+	err = gocmd.Run()
 	if err != nil {
 		return err
 	}
-	log.Info().Msgf("Built %s", soFilename)
+	log.Debug().Msgf("Built %s", soFilename)
 
 	if !x.KeepTemporaryFiles {
 		for _, fname := range []string{

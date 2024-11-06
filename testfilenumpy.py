@@ -4,6 +4,7 @@ import testmodulenumpy as tmn
 x = np.arange(12).reshape(3, 4)
 tmn.PrintDescr(x)
 tmn.PrintValues(x)
+tmn.PrintIndexedValues(x)
 
 for dtype in [np.float32, np.float64]:
     y = np.random.rand(10, 10).astype(dtype)

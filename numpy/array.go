@@ -1,13 +1,21 @@
 package numpy
 
 /*
-#cgo pkg-config: python3 python3-embed numpy
+#cgo pkg-config: python3 python3-embed
 #include <Python.h>
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/ndarrayobject.h>
 
 int PyArraySIZE(PyArrayObject *obj) {
 	return PyArray_SIZE(obj);
+}
+
+char* PyArrayBYTES(PyArrayObject *obj, uint64_t *itemsize) {
+	if (obj == NULL) { return NULL; }
+	if (itemsize != NULL) {
+		*itemsize = PyArray_ITEMSIZE(obj);
+	}
+	return PyArray_BYTES(obj);
 }
 
 void *PyArrayGETPTR1(PyArrayObject *obj, int i) {
@@ -88,6 +96,14 @@ func AsArray(ptr unsafe.Pointer) *Array {
 		dtype: NumpyType(C.PyArray_TYPE(obj)),
 		dims:  int(C.PyArray_NDIM(obj)),
 	}
+}
+
+func (a *Array) PyObject() unsafe.Pointer {
+	return unsafe.Pointer(a.obj)
+}
+
+func (a *Array) PyArrayObject() *C.PyArrayObject {
+	return a.obj
 }
 
 // Return the (builtin) typenumber for the elements of this array.
@@ -184,7 +200,23 @@ func (a *Array) SetAt(v interface{}, idxs ...int) {
 	}
 }
 
-func (a *Array) Values() iter.Seq2[[]int, interface{}] {
+func (a *Array) Values() iter.Seq[interface{}] {
+	nitems := 1
+	for _, v := range a.Shape() {
+		nitems *= v
+	}
+
+	bytes, itemsize := a.Bytes()
+	return func(yield func(interface{}) bool) {
+		for i := range uint64(nitems) {
+			if !yield(a.toValue(unsafe.Add(bytes, i*itemsize))) {
+				return
+			}
+		}
+	}
+}
+
+func (a *Array) IndexedValues() iter.Seq2[[]int, interface{}] {
 	shape := a.Shape()
 	remaining := 1
 	for _, v := range shape {
@@ -212,9 +244,24 @@ func (a *Array) Values() iter.Seq2[[]int, interface{}] {
 	}
 }
 
-func Values[T any](a *Array) iter.Seq2[[]int, T] {
+func (a *Array) Bytes() (unsafe.Pointer, uint64) {
+	var itemsize uint64
+	return unsafe.Pointer(C.PyArrayBYTES(a.obj, (*C.uint64_t)(&itemsize))), itemsize
+}
+
+func Values[T any](a *Array) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for v := range a.Values() {
+			if !yield(v.(T)) {
+				return
+			}
+		}
+	}
+}
+
+func IndexedValues[T any](a *Array) iter.Seq2[[]int, T] {
 	return func(yield func([]int, T) bool) {
-		for k, v := range a.Values() {
+		for k, v := range a.IndexedValues() {
 			if !yield(k, v.(T)) {
 				return
 			}

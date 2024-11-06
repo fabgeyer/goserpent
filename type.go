@@ -374,6 +374,8 @@ func (g *GoType) GoPyReturn(varname string) string {
 		return fmt.Sprintf("return asPyList(%s, %s)", varname, g.SliceElemType.GoPyReturnLambda())
 	case ByteArray:
 		return fmt.Sprintf("return asPyBytes(%s)", varname)
+	case NumpyArray:
+		return fmt.Sprintf("return (*C.PyObject)(%s.PyObject())", varname)
 	default:
 		g.Unsupported()
 	}

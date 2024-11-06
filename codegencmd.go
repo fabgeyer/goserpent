@@ -7,7 +7,8 @@ var codegenCommand CodegenCommand
 
 func (x *CodegenCommand) Execute(rargs []string) error {
 	args.Process()
-	return DoPyExports(args, rargs)
+	_, err := DoPyExports(args, rargs)
+	return err
 }
 
 func init() {
